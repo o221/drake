@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Huey React">
+    <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#1d4ed8" />
+            <stop offset="100%" stop-color="#0ea5e9" />
+        </linearGradient>
+    </defs>
+    <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#g)" />
+    <path d="M28 40h72M28 64h72M28 88h72M48 28v72" stroke="white" stroke-width="10" stroke-linecap="round" />
+</svg>
