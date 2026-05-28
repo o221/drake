@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: {
-        name: "Huey React Migration",
-        short_name: "Huey React",
-        description: "React and shadcn/ui migration workspace for Huey",
+        name: "Drake React Migration",
+        short_name: "Drake React",
+        description: "React and shadcn/ui migration workspace for Drake",
         theme_color: "#ffffff",
         background_color: "#ffffff",
         display: "standalone",

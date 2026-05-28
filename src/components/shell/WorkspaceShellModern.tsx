@@ -319,6 +319,7 @@ export default function WorkspaceShellModern() {
   const drawerWidthRef = useRef(drawerWidth);
   const previousDatasourceIdRef = useRef<string>("");
   const hasInitializedUrlStateRef = useRef(false);
+  const pendingUrlHydrationRef = useRef(false);
   const lastSerializedUrlStateRef = useRef("");
 
   useEffect(() => {
@@ -344,6 +345,8 @@ export default function WorkspaceShellModern() {
     setLimitEnabled(state.limitEnabled);
     setActiveMainTab(state.activeMainTab);
     setResultView(state.resultView);
+    setActiveResultTabId("main");
+    pendingUrlHydrationRef.current = true;
     hasInitializedUrlStateRef.current = true;
   };
 
@@ -656,6 +659,25 @@ export default function WorkspaceShellModern() {
     datasourceContext?.fromClauseSql,
     shouldKeepPivotOnMainQueryChange,
   ]);
+
+  useEffect(() => {
+    if (!pendingUrlHydrationRef.current) {
+      return;
+    }
+    if (!datasourceContext?.fromClauseSql) {
+      return;
+    }
+    if (!selectedDatasourceId) {
+      return;
+    }
+    if (!sql) {
+      return;
+    }
+
+    pendingUrlHydrationRef.current = false;
+    setActiveResultTabId("main");
+    void runQueryAndCaptureRaw(sql);
+  }, [datasourceContext?.fromClauseSql, selectedDatasourceId, sql]);
 
   const filteredColumns = useMemo(
     () =>
@@ -1802,7 +1824,7 @@ FROM (\n${selectStatements.join(
               <PanelLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
             <div className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-sm shadow-sm">
-              <Origami className="h-4 w-4 text-primary" aria-hidden="true" />
+              <Origami className="h-4 w-4 text-yellow-200 bg-black rounded-sm" aria-hidden="true" />
               Drake - DuckDB React Explorer
             </div>
           </div>

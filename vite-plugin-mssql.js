@@ -185,7 +185,7 @@ async function initDb() {
   const schemaFilter = `^(${escapeRegex(schema)})$`;
 
   await connection.run(
-    `CREATE OR REPLACE SECRET huey_mssql (\n` +
+    `CREATE OR REPLACE SECRET drake_mssql (\n` +
       `  TYPE mssql,\n` +
       `  host '${escapeSqlLiteral(host)}',\n` +
       `  port ${port},\n` +
@@ -197,7 +197,7 @@ async function initDb() {
   );
 
   await connection.run(
-    `ATTACH '' AS ${quoteIdentifier(attachAlias)} (TYPE mssql, SECRET huey_mssql);`,
+    `ATTACH '' AS ${quoteIdentifier(attachAlias)} (TYPE mssql, SECRET drake_mssql);`,
   );
 
   console.info(

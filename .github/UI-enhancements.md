@@ -1,6 +1,6 @@
 Please review and revisit progress reagarding:
 
-# Huey React UI Enhancements
+# Drake React UI Enhancements
 
 1. On the Workspace Panel please add:
    A Clear All icon button just to the left of the Auto-run button that clears all shelves and filters, and resets the query builder to its initial state.

@@ -1,10 +1,10 @@
 # Drake - DuckDB React Explorer
 
-This app is a React workspace inspired by the existing static Huey UI.
+This app is a React workspace inspired by the existing static Drake UI.
 
 The workspace now uses TypeScript (`.ts` / `.tsx`) with strict type-checking enabled in build.
 
-## Implemented migration slices
+## Implemented slices
 
 - React workspace shell (header, sidebar, and work area placeholder).
 - First adapter-backed feature panel: Data Sources.
