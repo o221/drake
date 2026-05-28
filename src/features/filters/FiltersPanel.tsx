@@ -19,12 +19,18 @@ const getAllowedFilterTypes = (columnType: string): Array<{ value: FilterType; l
   const common: Array<{ value: FilterType; label: string }> = [
     { value: "INCLUDE", label: "Include" },
     { value: "EXCLUDE", label: "Exclude" },
+    { value: "NEQ", label: "!=" },
     { value: "NULL", label: "Is Null" },
     { value: "NOT_NULL", label: "Is Not Null" },
   ];
 
   if (isTextType(columnType)) {
-    return [{ value: "LIKE", label: "Like" }, { value: "EQ", label: "=" }, ...common];
+    return [
+      { value: "LIKE", label: "Like" },
+      { value: "ILIKE", label: "ILike" },
+      { value: "EQ", label: "=" },
+      ...common,
+    ];
   }
 
   if (isNumericOrTemporalType(columnType)) {
@@ -246,7 +252,9 @@ export default function FiltersPanel({
                 )}
 
                 {(filter.type === "LIKE" ||
+                  filter.type === "ILIKE" ||
                   filter.type === "EQ" ||
+                  filter.type === "NEQ" ||
                   filter.type === "GT" ||
                   filter.type === "GTE" ||
                   filter.type === "LT" ||

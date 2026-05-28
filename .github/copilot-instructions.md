@@ -4,10 +4,13 @@ You are an expert Senior Frontend Engineer specialising in React, TypeScript, an
 
 Your goal is **Excellence**:
 
-- Code should be highly readable and predictable, with strong typing where it adds safety
+- Code should be highly readable and predictable
+- Always annotate function return types explicitly
+- Use generic type parameters when a function operates on more than one shape
+- Use discriminated unions for state with mutually exclusive variants
 - Prefer clarity over cleverness
 - Avoid unnecessary abstraction
-- Apply only the sections that are relevant to the current task and do not force unrelated constraints.
+- Apply only the sections that are relevant to the current task and do not force unrelated constraints. For sections marked NON-NEGOTIABLE, follow them for applicable work.
 
 When constraints compete, prioritize in this order:
 
@@ -75,6 +78,9 @@ When constraints compete, prioritize in this order:
 - Use `react-i18next` for all text
 - Never hardcode strings in components
 - Use translation keys with appropriate JSON files
+- Translation keys must follow the pattern `<feature>.<component>.<element>` (e.g., `worker.profile.nameLabel`).
+- JSON files are co-located with the feature at `@client/features/<feature>/i18n/en.json`.
+- If a key is missing at runtime, `react-i18next` will fall back to the key string. Treat missing keys as bugs and add them before shipping.
 
 ---
 
@@ -103,6 +109,11 @@ UI components are FORBIDDEN from receiving raw Domain shapes.
 
 - Create authAdapter.ts to transform the legacy ESMLoginUserAuthResult into a UI-ready UserSession object.
 - Create referenceDataAdapter.ts to transform raw SQL-derived domain models (e.g., OrgUnit) into the simplified shapes expected by shadcn/ui components.
+- All raw domain data must flow through adapters before reaching UI components.
+- Adapter functions must validate inputs using Zod `.parse()`.
+- Domain schemas must come from `@shared/types/domain.ts`.
+- Do not perform data transformation or type reshaping in components.
+- Preserve strict data integrity by avoiding fallbacks and using exhaustive `never` checks.
 
 ---
 
@@ -114,7 +125,7 @@ UI components are FORBIDDEN from receiving raw Domain shapes.
 ## Strict Data Integrity Rules
 
 - **No Fallbacks:** Never generate `?? {}` or `|| defaultValues` when mapping legacy data.
-- **Fail-Fast:** Always use `Schema.parse()` instead of `Schema.safeParse()`. If the data is wrong, the app must throw an error immediately.
+- **Fail-Fast:** Always use `Schema.parse()` instead of `Schema.safeParse()` in adapters and production data paths. If non-throwing validation is required for tests or standalone tooling, keep `safeParse()` outside adapter production code.
 - **No Mocking:** Do not generate "sample" or "placeholder" data in production services.
 - **Type Exhaustiveness:** Use TypeScript `never` checks in switch statements to ensure all legacy codes are mapped.
 
@@ -139,6 +150,8 @@ UI components are FORBIDDEN from receiving raw Domain shapes.
 
 - Every adapter function must begin with a Zod `.parse()` check.
 - Example: `const domainData = WorkerSchema.parse(input);`
+- When `Schema.parse()` throws, do not catch the ZodError inside the adapter. Let it propagate to the nearest React Error Boundary.
+- Adapter call sites should be wrapped in an error boundary using `@client/shared-components/ui/ErrorFallback`. In development, log `error.issues` to the console; in production, send them to monitoring.
 - This ensures that if the legacy SQL-derived API returns a breaking change, the error occurs in the Adapter layer, not the UI.
 
 ---
@@ -154,19 +167,14 @@ UI components are FORBIDDEN from receiving raw Domain shapes.
 ## Forms
 
 - Use `tanstack-form` with Zod resolver
-- Forms must be contained in bottom drawers. For touch devices, implement swipe-to-close behavior; for non-touch devices, provide an alternative close mechanism such as a close button.
+- Data entry forms (create/edit) must be contained in bottom drawers. Search, filter, and login forms are exempt and may use inline or page-level layouts.
+- For touch devices, implement swipe-to-close behavior; for non-touch devices, provide an alternative close mechanism such as a close button.
 - Form state should be minimal and only contain form fields (no derived or UI state)
 
 # 4. Type Governance (NON-NEGOTIABLE)
 
 - All domain models MUST come from:
   `@shared/types/domain.ts`
-
-- NEVER redefine:
-  - Worker
-  - Shift
-  - Clocking
-  - Allocation
 
 ---
 
@@ -222,7 +230,7 @@ WorkerSchema.parse(worker);
 ## Performance
 
 - Use `useMemo` for expensive calculations
-- Use `useCallback` for stable handlers where needed
+- Use `useCallback` only for handlers passed as props to memoized child components (`React.memo`) or as dependencies of `useEffect`/`useMemo`
 - Avoid unnecessary re-renders by keeping components pure
 
 ## Lists
@@ -237,6 +245,10 @@ WorkerSchema.parse(worker);
 ## UI
 
 - Ensure all UI components are responsive, accessible, and use semantic HTML with proper ARIA support where needed.
+- Use TanStack Query (`@tanstack/react-query`) for all server state.
+- Keep query functions in `@client/queries/`.
+- Pass fetched data through the adapter layer before storing it in the query cache or handing it to UI components.
+- Container components should use `useQuery`/`useMutation` hooks only.
 
 # 7. Logic Rules
 

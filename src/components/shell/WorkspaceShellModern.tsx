@@ -9,11 +9,14 @@ import {
   Trash2,
   ChevronRight,
   ChevronDown,
+  Eraser,
+  BookmarkPlus,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DrawerSection } from "@/components/shell/WorkspaceShellDrawerSection";
 import WorkspaceResultsPanel from "@/components/shell/WorkspaceResultsPanel";
@@ -46,6 +49,7 @@ import type { DataSourceColumn, FilterExpression } from "@/types";
 
 interface WorkspacePreset extends QueryPresetItem {
   selection: QueryBuilderSelection;
+  filters: FilterExpression[];
 }
 
 const QUERY_PRESETS_STORAGE_KEY = "drake-react.queryPresets";
@@ -174,7 +178,7 @@ interface UrlWorkspaceState {
     >
   >;
   limitEnabled: boolean;
-  activeMainTab: "pivot" | "sql";
+  activeMainTab: "pivot" | "sql" | "presets";
   resultView: "raw" | "pivot" | "rows";
 }
 
@@ -239,7 +243,12 @@ function parseUrlWorkspaceState(): UrlWorkspaceState | null {
       selection: parsed.selection,
       filters,
       limitEnabled: parsed.limitEnabled !== false,
-      activeMainTab: parsed.activeMainTab === "sql" ? "sql" : "pivot",
+      activeMainTab:
+        parsed.activeMainTab === "sql"
+          ? "sql"
+          : parsed.activeMainTab === "presets"
+            ? "presets"
+            : "pivot",
       resultView:
         parsed.resultView === "rows" ? "rows" : parsed.resultView === "raw" ? "raw" : "pivot",
     };
@@ -302,13 +311,14 @@ export default function WorkspaceShellModern() {
   >(() => getInitialResultTabs());
   const [activeResultTabId, setActiveResultTabId] = useState<string>("main");
   const [editorSqlSeed, setEditorSqlSeed] = useState<string>("");
-  const [activeMainTab, setActiveMainTab] = useState<"pivot" | "sql">("pivot");
+  const [activeMainTab, setActiveMainTab] = useState<"pivot" | "sql" | "presets">("pivot");
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [drawerSections, setDrawerSections] = useState({
     sources: true,
     attributes: true,
     filters: true,
   });
+  const [presetQuery, setPresetQuery] = useState("");
   const [limitEnabled, setLimitEnabled] = useState(true);
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
 
@@ -318,6 +328,7 @@ export default function WorkspaceShellModern() {
   const dragDeltaRef = useRef(0);
   const drawerWidthRef = useRef(drawerWidth);
   const previousDatasourceIdRef = useRef<string>("");
+  const isLoadingPresetRef = useRef(false);
   const hasInitializedUrlStateRef = useRef(false);
   const pendingUrlHydrationRef = useRef(false);
   const lastSerializedUrlStateRef = useRef("");
@@ -481,6 +492,12 @@ export default function WorkspaceShellModern() {
   }, [datasources, selectedDatasourceId]);
 
   useEffect(() => {
+    if (activeMainTab === "presets" && presets.length === 0) {
+      setActiveMainTab("pivot");
+    }
+  }, [activeMainTab, presets.length]);
+
+  useEffect(() => {
     const hasSelectedDatasource = Boolean(
       selectedDatasourceId && datasources.some((item) => item.id === selectedDatasourceId),
     );
@@ -497,6 +514,11 @@ export default function WorkspaceShellModern() {
     previousDatasourceIdRef.current = selectedDatasourceId;
 
     if (!hasDatasourceChanged) {
+      return;
+    }
+
+    if (isLoadingPresetRef.current) {
+      isLoadingPresetRef.current = false;
       return;
     }
 
@@ -784,6 +806,16 @@ export default function WorkspaceShellModern() {
     [drawerSearch, presets],
   );
 
+  const filteredPresets = useMemo(
+    () =>
+      presets.filter((preset) =>
+        `${preset.name} ${preset.sql} ${preset.datasourceId}`
+          .toLowerCase()
+          .includes(presetQuery.toLowerCase()),
+      ),
+    [presetQuery, presets],
+  );
+
   const processingChip = useMemo(() => {
     if (!selectedDatasourceId) {
       return {
@@ -842,16 +874,29 @@ export default function WorkspaceShellModern() {
       datasourceId: selectedDatasourceId,
       createdAt: new Date().toISOString(),
       selection,
+      filters,
     };
     setPresets((current) => [nextPreset, ...current]);
   };
 
+  const handleSavePresetClick = () => {
+    const name = window.prompt("Save bookmark name", `Bookmark ${presets.length + 1}`)?.trim();
+    if (!name) {
+      return;
+    }
+    handleSavePreset(name, editorSql);
+  };
+
   const handleLoadPreset = (preset: QueryPresetItem) => {
     const typedPreset = preset as WorkspacePreset;
+    isLoadingPresetRef.current = true;
+    setDrawerOpen(true);
+    setDrawerSections({ sources: true, attributes: true, filters: true });
     setSelectedDatasourceId(typedPreset.datasourceId);
-    setSelection(typedPreset.selection);
+    setSelection(typedPreset.selection ?? selection);
+    setFilters(typedPreset.filters ?? []);
     setEditorSqlSeed(typedPreset.sql);
-    setActiveMainTab("sql");
+    setActiveMainTab("pivot");
   };
 
   const handleDeletePreset = (presetId: string) => {
@@ -2284,6 +2329,11 @@ FROM (\n${selectStatements.join(
                         <TabsTrigger value="sql" className="h-6 text-xs px-3">
                           SQL Editor
                         </TabsTrigger>
+                        {presets.length > 0 ? (
+                          <TabsTrigger value="presets" className="h-6 text-xs px-3">
+                            Bookmarks
+                          </TabsTrigger>
+                        ) : null}
                       </TabsList>
                     ) : null}
                   </div>
@@ -2291,14 +2341,25 @@ FROM (\n${selectStatements.join(
                   {workspaceOpen ? (
                     <div className="flex items-center gap-2">
                       <Button
-                        size="icon"
+                        size="sm"
+                        variant="outline"
+                        className="text-[11px]"
+                        onClick={handleSavePresetClick}
+                        disabled={!selectedDatasourceId || !editorSql.trim()}
+                        title="Save Bookmark"
+                      >
+                        <BookmarkPlus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                        Bookmark
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="outline"
                         aria-label="Clear all"
                         title="Clear All"
                         onClick={handleClearAll}
                         disabled={isRunning || !selectedDatasourceId}
                       >
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        <Eraser className="h-4 w-4" aria-hidden="true" />
                       </Button>
                       <Button
                         size="sm"
@@ -2356,6 +2417,59 @@ FROM (\n${selectStatements.join(
                         />
                       </div>
                     </TabsContent>
+                    {presets.length > 0 ? (
+                      <TabsContent value="presets" className="mt-0 min-h-0">
+                        <div className="flex flex-col gap-3">
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              value={presetQuery}
+                              onChange={(event) => setPresetQuery(event.target.value)}
+                              placeholder="Search presets"
+                              className="pl-9"
+                            />
+                          </div>
+                          <ScrollArea className="h-[calc(100%-44px)] border rounded-md bg-card/50">
+                            <div className="p-1 space-y-1">
+                              {filteredPresets.length === 0 ? (
+                                <div className="p-8 text-center text-xs text-muted-foreground italic">
+                                  No saved presets.
+                                </div>
+                              ) : (
+                                filteredPresets.map((preset) => (
+                                  <div
+                                    key={preset.id}
+                                    className="group rounded border bg-background px-3 py-2 text-xs"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <button
+                                        type="button"
+                                        className="min-w-0 flex-1 text-left"
+                                        onClick={() => handleLoadPreset(preset)}
+                                      >
+                                        <p className="truncate font-medium">{preset.name}</p>
+                                        <p className="truncate text-[11px] text-muted-foreground">
+                                          {preset.datasourceId || "No datasource"} •{" "}
+                                          {new Date(preset.createdAt).toLocaleString()}
+                                        </p>
+                                      </button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 opacity-0 group-hover:opacity-100"
+                                        onClick={() => handleDeletePreset(preset.id)}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </ScrollArea>
+                        </div>
+                      </TabsContent>
+                    ) : null}
                   </div>
                 )}
               </Tabs>

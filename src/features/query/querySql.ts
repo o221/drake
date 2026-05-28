@@ -76,9 +76,19 @@ function buildFilterPredicate(filter: FilterExpression, expr: string): string | 
         return `${expr} LIKE ${quoteLiteral(`%${filter.values[0]}%`)}`;
       }
       return null;
+    case "ILIKE":
+      if (filter.values.length) {
+        return `${expr} ILIKE ${quoteLiteral(`%${filter.values[0]}%`)}`;
+      }
+      return null;
     case "EQ":
       if (filter.values.length) {
         return `${expr} = ${toTypedLiteral(filter, filter.values[0])}`;
+      }
+      return null;
+    case "NEQ":
+      if (filter.values.length) {
+        return `${expr} != ${toTypedLiteral(filter, filter.values[0])}`;
       }
       return null;
     case "GT":

@@ -274,7 +274,7 @@ export default function DataSourcesPanel({
       <header className="mb-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground">Load files and tables</p>
+            <p className="text-xs text-muted-foreground">Get local or remote files or tables</p>
           </div>
           <div className="flex gap-2">
             <input
@@ -295,21 +295,21 @@ export default function DataSourcesPanel({
             </Button>
             <Button
               size="sm"
-              variant={showRemoteSearch ? "secondary" : "outline"}
-              className="h-8 py-0 px-2"
-              onClick={() => setShowRemoteSearch(!showRemoteSearch)}
-              title="Search MSSQL Tables"
-            >
-              <Database className="h-4 w-4" />
-            </Button>
-            <Button
-              size="sm"
               variant="outline"
               className="h-8 py-0 px-2"
               onClick={() => setIsUrlDialogOpen(true)}
               title="Load Data Source from URL"
             >
               <Globe className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant={showRemoteSearch ? "secondary" : "outline"}
+              className="h-8 py-0 px-2"
+              onClick={() => setShowRemoteSearch(!showRemoteSearch)}
+              title="Search MSSQL Tables"
+            >
+              <Database className="h-4 w-4" />
             </Button>
           </div>
         </div>
