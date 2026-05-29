@@ -1,6 +1,26 @@
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  BarChart3,
+  Check,
+  ChevronDown,
+  CircleOff,
+  LineChart,
+} from "lucide-react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import type { QueryRow } from "@/features/runtime/duckdbRuntime";
+import { cn } from "@/lib/utils";
 
 interface PivotMatrixProps {
   rows: QueryRow[];
@@ -10,10 +30,16 @@ interface PivotMatrixProps {
   rowAxisDimensions?: string[];
   rowSortDirections?: Record<string, "asc" | "desc">;
   rowSortPriority?: string[];
-  onRowHeaderSortChange?: (rowDimension: string, direction: "asc" | "desc") => void;
+  onRowHeaderSortChange?: (
+    rowDimension: string,
+    direction: "asc" | "desc",
+  ) => void;
   columnSortDirections?: Record<string, "asc" | "desc">;
   columnSortPriority?: string[];
-  onColumnHeaderSortChange?: (columnDimension: string, direction: "asc" | "desc") => void;
+  onColumnHeaderSortChange?: (
+    columnDimension: string,
+    direction: "asc" | "desc",
+  ) => void;
 }
 
 function toLabel(value: unknown, missingDisplay: string): string {
@@ -43,7 +69,9 @@ function formatTemporalLabel(value: unknown): string | null {
   }
 
   const asMilliseconds =
-    numericValue >= 946684800 && numericValue <= 4102444800 ? numericValue * 1000 : numericValue;
+    numericValue >= 946684800 && numericValue <= 4102444800
+      ? numericValue * 1000
+      : numericValue;
 
   if (asMilliseconds < 946684800000 || asMilliseconds > 4102444800000) {
     return null;
@@ -82,6 +110,7 @@ function compareLabels(left: string, right: string): number {
 
 type SortMode = "label-asc" | "label-desc" | "metric-desc" | "metric-asc";
 type SparklineMode = "off" | "bar" | "line";
+type MissingDisplayOption = "-" | " " | "null" | "N/A";
 type ActiveSortTarget =
   | { kind: "none" }
   | { kind: "row"; key: string }
@@ -89,7 +118,10 @@ type ActiveSortTarget =
   | { kind: "measure"; key: string }
   | { kind: "total" };
 
-function getAxisKeys(rows: QueryRow[], axisPrefix: "row_dimension" | "column_dimension"): string[] {
+function getAxisKeys(
+  rows: QueryRow[],
+  axisPrefix: "row_dimension" | "column_dimension",
+): string[] {
   const keys = new Set<string>();
   rows.forEach((row) => {
     Object.keys(row).forEach((key) => {
@@ -142,7 +174,10 @@ function parseMergedPivotHeader(
   const tokens = label.split("_");
   if (tokens.length <= columnAxisCount) {
     return {
-      axisParts: [...tokens, ...Array(Math.max(0, columnAxisCount - tokens.length)).fill("")],
+      axisParts: [
+        ...tokens,
+        ...Array(Math.max(0, columnAxisCount - tokens.length)).fill(""),
+      ],
       measureLabel: label,
     };
   }
@@ -207,7 +242,11 @@ function parseMergedPivotHeaderWithSuffix(
   if (tupleMatch) {
     const tupleValues = tupleMatch[1].split(",").map((part) => part.trim());
     const axisParts = new Array<string>(columnAxisCount).fill("");
-    for (let index = 0; index < Math.min(tupleValues.length, columnAxisCount); index += 1) {
+    for (
+      let index = 0;
+      index < Math.min(tupleValues.length, columnAxisCount);
+      index += 1
+    ) {
       axisParts[index] = tupleValues[index];
     }
     return {
@@ -245,7 +284,11 @@ function parseDuckDbMergedHeader(
   if (tupleMatch) {
     const tupleValues = tupleMatch[1].split(",").map((part) => part.trim());
     const axisParts = new Array<string>(columnAxisCount).fill("");
-    for (let index = 0; index < Math.min(tupleValues.length, columnAxisCount); index += 1) {
+    for (
+      let index = 0;
+      index < Math.min(tupleValues.length, columnAxisCount);
+      index += 1
+    ) {
       axisParts[index] = tupleValues[index];
     }
     return { axisParts, measureLabel: tupleMatch[2] };
@@ -273,9 +316,14 @@ function inferMergedPivotHeaders(
     return labels.map((label) => ({ axisParts: [], measureLabel: label }));
   }
 
-  const directDuckDbParsed = labels.map((label) => parseDuckDbMergedHeader(label, columnAxisCount));
+  const directDuckDbParsed = labels.map((label) =>
+    parseDuckDbMergedHeader(label, columnAxisCount),
+  );
   if (directDuckDbParsed.every((item) => item !== null)) {
-    return directDuckDbParsed as Array<{ axisParts: string[]; measureLabel: string }>;
+    return directDuckDbParsed as Array<{
+      axisParts: string[];
+      measureLabel: string;
+    }>;
   }
 
   const suffixCounts = new Map<string, number>();
@@ -309,6 +357,26 @@ function inferMergedPivotHeaders(
   return labels.map((label) => parseMergedPivotHeader(label, columnAxisCount));
 }
 
+const DECIMAL_OPTIONS: Array<0 | 1 | 2 | 3> = [0, 1, 2, 3];
+const MISSING_DISPLAY_OPTIONS: MissingDisplayOption[] = [
+  "-",
+  " ",
+  "null",
+  "N/A",
+];
+
+function getNextOption<T>(options: readonly T[], value: T): T {
+  const index = options.indexOf(value);
+  if (index === -1) {
+    return options[0];
+  }
+  return options[(index + 1) % options.length];
+}
+
+function formatMissingDisplayOptionLabel(option: MissingDisplayOption): string {
+  return option === " " ? "Blank" : option;
+}
+
 export default function PivotMatrix({
   rows,
   rowAxisKeys: rowAxisKeysProp,
@@ -326,8 +394,12 @@ export default function PivotMatrix({
   const [columnAliasSortDirections, setColumnAliasSortDirections] = useState<
     Record<string, "asc" | "desc">
   >({});
-  const [columnAliasSortPriority, setColumnAliasSortPriority] = useState<string[]>([]);
-  const [activeSortTarget, setActiveSortTarget] = useState<ActiveSortTarget>({ kind: "none" });
+  const [columnAliasSortPriority, setColumnAliasSortPriority] = useState<
+    string[]
+  >([]);
+  const [activeSortTarget, setActiveSortTarget] = useState<ActiveSortTarget>({
+    kind: "none",
+  });
   const [rowValueSort, setRowValueSort] = useState<{
     columnLabel: string;
     direction: "desc" | "asc";
@@ -343,7 +415,9 @@ export default function PivotMatrix({
   const rowHeaderCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
   const freezeHeaderCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
   const freezeBodyCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
-  const [rowHeaderLeftOffsets, setRowHeaderLeftOffsets] = useState<number[]>([]);
+  const [rowHeaderLeftOffsets, setRowHeaderLeftOffsets] = useState<number[]>(
+    [],
+  );
   const [freezeColumnWidths, setFreezeColumnWidths] = useState<number[]>([]);
   const bodyScrollContainerRef = useRef<HTMLDivElement | null>(null);
   const freezeHeaderScrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -365,8 +439,14 @@ export default function PivotMatrix({
     });
   };
 
-  const detectedRowAxisKeys = useMemo(() => getAxisKeys(rows, "row_dimension"), [rows]);
-  const detectedColumnAxisKeys = useMemo(() => getAxisKeys(rows, "column_dimension"), [rows]);
+  const detectedRowAxisKeys = useMemo(
+    () => getAxisKeys(rows, "row_dimension"),
+    [rows],
+  );
+  const detectedColumnAxisKeys = useMemo(
+    () => getAxisKeys(rows, "column_dimension"),
+    [rows],
+  );
   const rowAxisKeys = useMemo(() => {
     if (rowAxisKeysProp?.length) {
       return rowAxisKeysProp;
@@ -380,7 +460,10 @@ export default function PivotMatrix({
     return detectedColumnAxisKeys;
   }, [columnAxisKeysProp, detectedColumnAxisKeys]);
 
-  const hasLongPivotShape = useMemo(() => rows.some((row) => "metric" in row), [rows]);
+  const hasLongPivotShape = useMemo(
+    () => rows.some((row) => "metric" in row),
+    [rows],
+  );
   const hasWidePivotShape = useMemo(() => {
     if (!rows.length) return false;
     return rows.some((row) => {
@@ -407,9 +490,9 @@ export default function PivotMatrix({
 
     if (hasLongPivotShape) {
       rows.forEach((row) => {
-        const rowLabelParts = (rowAxisKeys.length ? rowAxisKeys : ["row_dimension"]).map((key) =>
-          toLabel(row[key], missingDisplay),
-        );
+        const rowLabelParts = (
+          rowAxisKeys.length ? rowAxisKeys : ["row_dimension"]
+        ).map((key) => toLabel(row[key], missingDisplay));
         const columnLabelParts = (
           columnAxisKeys.length ? columnAxisKeys : ["column_dimension"]
         ).map((key) => toLabel(row[key], missingDisplay));
@@ -464,10 +547,13 @@ export default function PivotMatrix({
       });
     }
 
-    const columnTotals = columnLabels.reduce<Record<string, number>>((acc, label) => {
-      acc[label] = 0;
-      return acc;
-    }, {});
+    const columnTotals = columnLabels.reduce<Record<string, number>>(
+      (acc, label) => {
+        acc[label] = 0;
+        return acc;
+      },
+      {},
+    );
     const rowTotals = rowKeys.reduce<Record<string, number>>((acc, rowKey) => {
       const total = columnLabels.reduce((sum, columnLabel) => {
         const value = cellMap.get(`${rowKey}::${columnLabel}`) ?? 0;
@@ -477,7 +563,10 @@ export default function PivotMatrix({
       acc[rowKey] = total;
       return acc;
     }, {});
-    const grandTotal = Object.values(rowTotals).reduce((sum, value) => sum + value, 0);
+    const grandTotal = Object.values(rowTotals).reduce(
+      (sum, value) => sum + value,
+      0,
+    );
 
     return {
       rowKeys,
@@ -488,13 +577,24 @@ export default function PivotMatrix({
       columnTotals,
       grandTotal,
     };
-  }, [columnAxisKeys, rowAxisKeys, rows, hasPivotShape, hasLongPivotShape, missingDisplay]);
+  }, [
+    columnAxisKeys,
+    rowAxisKeys,
+    rows,
+    hasPivotShape,
+    hasLongPivotShape,
+    missingDisplay,
+  ]);
 
   const parsedColumnHeaderByLabel = useMemo(() => {
-    if (!pivot) return new Map<string, { axisParts: string[]; measureLabel: string }>();
+    if (!pivot)
+      return new Map<string, { axisParts: string[]; measureLabel: string }>();
     return new Map<string, { axisParts: string[]; measureLabel: string }>(
       (hasLongPivotShape
-        ? pivot.columnLabels.map((label) => ({ axisParts: [], measureLabel: label }))
+        ? pivot.columnLabels.map((label) => ({
+            axisParts: [],
+            measureLabel: label,
+          }))
         : inferMergedPivotHeaders(pivot.columnLabels, columnAxisKeys.length)
       ).map((parsed, index) => [pivot.columnLabels[index], parsed]),
     );
@@ -507,22 +607,28 @@ export default function PivotMatrix({
       const leftLabel = joinLabelParts(pivot.rowPartsByKey[a] ?? []);
       const rightLabel = joinLabelParts(pivot.rowPartsByKey[b] ?? []);
       if (activeSortTarget.kind === "measure" && rowValueSort) {
-        const left = pivot.cellMap.get(`${a}::${rowValueSort.columnLabel}`) ?? 0;
-        const right = pivot.cellMap.get(`${b}::${rowValueSort.columnLabel}`) ?? 0;
+        const left =
+          pivot.cellMap.get(`${a}::${rowValueSort.columnLabel}`) ?? 0;
+        const right =
+          pivot.cellMap.get(`${b}::${rowValueSort.columnLabel}`) ?? 0;
         if (left !== right) {
-          return rowValueSort.direction === "desc" ? right - left : left - right;
+          return rowValueSort.direction === "desc"
+            ? right - left
+            : left - right;
         }
         return compareLabels(leftLabel, rightLabel);
       }
       if (activeSortTarget.kind === "row" && rowAxisDimensions.length > 0) {
         const leftParts = pivot.rowPartsByKey[a] ?? [];
         const rightParts = pivot.rowPartsByKey[b] ?? [];
-        const prioritizedDimensions = (rowSortPriority ?? []).filter((dimension) =>
-          rowAxisDimensions.includes(dimension),
+        const prioritizedDimensions = (rowSortPriority ?? []).filter(
+          (dimension) => rowAxisDimensions.includes(dimension),
         );
         const orderedDimensions = [
           ...prioritizedDimensions,
-          ...rowAxisDimensions.filter((dimension) => !prioritizedDimensions.includes(dimension)),
+          ...rowAxisDimensions.filter(
+            (dimension) => !prioritizedDimensions.includes(dimension),
+          ),
         ];
         for (const rowDimension of orderedDimensions) {
           const index = rowAxisDimensions.indexOf(rowDimension);
@@ -535,7 +641,8 @@ export default function PivotMatrix({
           if (compare === 0) {
             continue;
           }
-          const direction = rowSortDirections?.[rowDimension] === "desc" ? -1 : 1;
+          const direction =
+            rowSortDirections?.[rowDimension] === "desc" ? -1 : 1;
           return compare * direction;
         }
         return compareLabels(leftLabel, rightLabel);
@@ -586,7 +693,9 @@ export default function PivotMatrix({
         );
         const orderedAliases = [
           ...prioritizedAliases,
-          ...columnAxisDimensions.filter((alias) => !prioritizedAliases.includes(alias)),
+          ...columnAxisDimensions.filter(
+            (alias) => !prioritizedAliases.includes(alias),
+          ),
         ];
 
         for (const alias of orderedAliases) {
@@ -594,8 +703,10 @@ export default function PivotMatrix({
           if (index < 0) {
             continue;
           }
-          const leftPart = parsedColumnHeaderByLabel.get(a)?.axisParts[index] ?? "";
-          const rightPart = parsedColumnHeaderByLabel.get(b)?.axisParts[index] ?? "";
+          const leftPart =
+            parsedColumnHeaderByLabel.get(a)?.axisParts[index] ?? "";
+          const rightPart =
+            parsedColumnHeaderByLabel.get(b)?.axisParts[index] ?? "";
           const compare = compareLabels(leftPart, rightPart);
           if (compare !== 0) {
             return compare;
@@ -619,14 +730,22 @@ export default function PivotMatrix({
   const showSeparateRowFields = rowAxisKeys.length > 1;
   const rowHeaderTitles = rowAxisKeys.length > 0 ? rowAxisKeys : ["Row Title"];
   const rowHeaderTitle = rowHeaderTitles.join(" / ");
-  const rowHeaderColumnCount = showSeparateRowFields ? rowHeaderTitles.length : 1;
+  const rowHeaderColumnCount = showSeparateRowFields
+    ? rowHeaderTitles.length
+    : 1;
   const sparklineColumnCount = sparklineMode !== "off" ? 1 : 0;
   const totalsColumnCount = showTotals ? 1 : 0;
   const totalColumnCount =
-    rowHeaderColumnCount + sparklineColumnCount + sortedColumns.length + totalsColumnCount;
+    rowHeaderColumnCount +
+    sparklineColumnCount +
+    sortedColumns.length +
+    totalsColumnCount;
 
   useLayoutEffect(() => {
-    rowHeaderCellRefs.current = rowHeaderCellRefs.current.slice(0, rowHeaderColumnCount);
+    rowHeaderCellRefs.current = rowHeaderCellRefs.current.slice(
+      0,
+      rowHeaderColumnCount,
+    );
 
     if (!freezeRowHeaders) {
       return;
@@ -674,7 +793,9 @@ export default function PivotMatrix({
     sortedColumns.length,
   ]);
 
-  const getFrozenRowHeaderStyle = (index: number): CSSProperties | undefined => {
+  const getFrozenRowHeaderStyle = (
+    index: number,
+  ): CSSProperties | undefined => {
     if (!freezeRowHeaders) {
       return undefined;
     }
@@ -685,7 +806,9 @@ export default function PivotMatrix({
     };
   };
 
-  const getFrozenHeaderRowHeaderStyle = (index: number): CSSProperties | undefined => {
+  const getFrozenHeaderRowHeaderStyle = (
+    index: number,
+  ): CSSProperties | undefined => {
     if (!freezeRowHeaders) {
       return undefined;
     }
@@ -696,17 +819,20 @@ export default function PivotMatrix({
     };
   };
 
-  const setRowHeaderRef = (index: number) => (element: HTMLTableCellElement | null) => {
-    rowHeaderCellRefs.current[index] = element;
-  };
+  const setRowHeaderRef =
+    (index: number) => (element: HTMLTableCellElement | null) => {
+      rowHeaderCellRefs.current[index] = element;
+    };
 
-  const setFreezeHeaderCellRef = (index: number) => (element: HTMLTableCellElement | null) => {
-    freezeHeaderCellRefs.current[index] = element;
-  };
+  const setFreezeHeaderCellRef =
+    (index: number) => (element: HTMLTableCellElement | null) => {
+      freezeHeaderCellRefs.current[index] = element;
+    };
 
-  const setFreezeBodyCellRef = (index: number) => (element: HTMLTableCellElement | null) => {
-    freezeBodyCellRefs.current[index] = element;
-  };
+  const setFreezeBodyCellRef =
+    (index: number) => (element: HTMLTableCellElement | null) => {
+      freezeBodyCellRefs.current[index] = element;
+    };
 
   useLayoutEffect(() => {
     if (!freezeRowHeaders) {
@@ -714,13 +840,20 @@ export default function PivotMatrix({
       return;
     }
 
-    freezeHeaderCellRefs.current = freezeHeaderCellRefs.current.slice(0, totalColumnCount);
-    freezeBodyCellRefs.current = freezeBodyCellRefs.current.slice(0, totalColumnCount);
+    freezeHeaderCellRefs.current = freezeHeaderCellRefs.current.slice(
+      0,
+      totalColumnCount,
+    );
+    freezeBodyCellRefs.current = freezeBodyCellRefs.current.slice(
+      0,
+      totalColumnCount,
+    );
 
     const updateWidths = () => {
       const nextWidths: number[] = [];
       for (let index = 0; index < totalColumnCount; index += 1) {
-        const headerWidth = freezeHeaderCellRefs.current[index]?.offsetWidth ?? 0;
+        const headerWidth =
+          freezeHeaderCellRefs.current[index]?.offsetWidth ?? 0;
         const bodyWidth = freezeBodyCellRefs.current[index]?.offsetWidth ?? 0;
         nextWidths[index] = Math.max(headerWidth, bodyWidth);
       }
@@ -773,7 +906,11 @@ export default function PivotMatrix({
   ]);
 
   const parsedColumnHeaders = sortedColumns.map(
-    (label) => parsedColumnHeaderByLabel.get(label) ?? { axisParts: [], measureLabel: label },
+    (label) =>
+      parsedColumnHeaderByLabel.get(label) ?? {
+        axisParts: [],
+        measureLabel: label,
+      },
   );
   const showColumnHeaderRows = !hasLongPivotShape && columnAxisKeys.length > 0;
   const pivotTableKey = `${sortedColumns.join("|")}-${sparseMode ? "sparse" : "dense"}-${showColumnHeaderRows ? "header" : "noheader"}`;
@@ -791,17 +928,27 @@ export default function PivotMatrix({
 
   const rowHeaderSpans = useMemo(() => {
     if (!pivot) {
-      return sortedRows.map(() => new Array<number>(rowHeaderColumnCount).fill(1));
+      return sortedRows.map(() =>
+        new Array<number>(rowHeaderColumnCount).fill(1),
+      );
     }
 
-    const rowPartsList = sortedRows.map((rowKey) => pivot.rowPartsByKey[rowKey] ?? []);
-    const spans = sortedRows.map(() => new Array<number>(rowHeaderColumnCount).fill(1));
+    const rowPartsList = sortedRows.map(
+      (rowKey) => pivot.rowPartsByKey[rowKey] ?? [],
+    );
+    const spans = sortedRows.map(() =>
+      new Array<number>(rowHeaderColumnCount).fill(1),
+    );
 
     if (!sparseMode || rowHeaderColumnCount <= 0) {
       return spans;
     }
 
-    for (let columnIndex = 0; columnIndex < rowHeaderColumnCount; columnIndex += 1) {
+    for (
+      let columnIndex = 0;
+      columnIndex < rowHeaderColumnCount;
+      columnIndex += 1
+    ) {
       let rowIndex = 0;
       while (rowIndex < sortedRows.length) {
         const currentValue = rowPartsList[rowIndex][columnIndex] ?? "";
@@ -852,10 +999,18 @@ export default function PivotMatrix({
             parsedColumnHeaders[columnIndex + span],
             columnLevelIndex,
           );
-          const sameParentLevels = Array.from({ length: columnLevelIndex }).every(
+          const sameParentLevels = Array.from({
+            length: columnLevelIndex,
+          }).every(
             (_, parentIndex) =>
-              getColumnAxisPartLabel(parsedColumnHeaders[columnIndex + span], parentIndex) ===
-              getColumnAxisPartLabel(parsedColumnHeaders[columnIndex], parentIndex),
+              getColumnAxisPartLabel(
+                parsedColumnHeaders[columnIndex + span],
+                parentIndex,
+              ) ===
+              getColumnAxisPartLabel(
+                parsedColumnHeaders[columnIndex],
+                parentIndex,
+              ),
           );
           if (!sameParentLevels || nextLabel !== currentLabel) {
             break;
@@ -872,7 +1027,13 @@ export default function PivotMatrix({
 
       return spans;
     });
-  }, [showColumnHeaderRows, sparseMode, columnAxisKeys, sortedColumns, parsedColumnHeaders]);
+  }, [
+    showColumnHeaderRows,
+    sparseMode,
+    columnAxisKeys,
+    sortedColumns,
+    parsedColumnHeaders,
+  ]);
 
   const measureHeaderSpans = useMemo(() => {
     if (!sparseMode) {
@@ -884,7 +1045,8 @@ export default function PivotMatrix({
 
     while (columnIndex < sortedColumns.length) {
       const currentLabel =
-        parsedColumnHeaders[columnIndex]?.measureLabel?.trim() ?? sortedColumns[columnIndex].trim();
+        parsedColumnHeaders[columnIndex]?.measureLabel?.trim() ??
+        sortedColumns[columnIndex].trim();
       let span = 1;
 
       while (columnIndex + span < sortedColumns.length) {
@@ -914,7 +1076,9 @@ export default function PivotMatrix({
     return new Map(
       sortedRows.map((rowKey) => [
         rowKey,
-        sortedColumns.map((columnLabel) => pivot.cellMap.get(`${rowKey}::${columnLabel}`) ?? 0),
+        sortedColumns.map(
+          (columnLabel) => pivot.cellMap.get(`${rowKey}::${columnLabel}`) ?? 0,
+        ),
       ]),
     );
   }, [sparklineMode, sortedRows, sortedColumns, pivot]);
@@ -1004,7 +1168,9 @@ export default function PivotMatrix({
   }, [freezeRowHeaders, bodyScrollLeft]);
 
   if (!rows.length) {
-    return <p className="text-xs text-muted-foreground">No rows returned yet.</p>;
+    return (
+      <p className="text-xs text-muted-foreground">No rows returned yet.</p>
+    );
   }
 
   if (!hasPivotShape) {
@@ -1027,7 +1193,9 @@ export default function PivotMatrix({
     rowSort === "metric-desc" ? " ▼" : rowSort === "metric-asc" ? " ▲" : "";
 
   const getColumnAliasSortIndicator = (alias: string): string =>
-    activeSortTarget.kind === "columnAlias" && activeSortTarget.key === alias ? " ▶" : "";
+    activeSortTarget.kind === "columnAlias" && activeSortTarget.key === alias
+      ? " ▶"
+      : "";
 
   const getRowHeaderSortIndicator = (index: number): string => {
     const rowDimension = rowAxisDimensions[index];
@@ -1040,7 +1208,9 @@ export default function PivotMatrix({
 
   const getRowHeaderSortDirection = (index: number): "asc" | "desc" => {
     const rowDimension = rowAxisDimensions[index];
-    return rowDimension && rowSortDirections?.[rowDimension] === "desc" ? "desc" : "asc";
+    return rowDimension && rowSortDirections?.[rowDimension] === "desc"
+      ? "desc"
+      : "asc";
   };
 
   const handleRowHeaderSortClick = (index: number) => {
@@ -1049,23 +1219,29 @@ export default function PivotMatrix({
     const rowKey = rowDimension || `row-index-${index}`;
     setActiveSortTarget({ kind: "row", key: rowKey });
     if (!rowDimension) {
-      setRowSort((current) => (current === "label-asc" ? "label-desc" : "label-asc"));
+      setRowSort((current) =>
+        current === "label-asc" ? "label-desc" : "label-asc",
+      );
       return;
     }
-    const nextDirection = getRowHeaderSortDirection(index) === "asc" ? "desc" : "asc";
+    const nextDirection =
+      getRowHeaderSortDirection(index) === "asc" ? "desc" : "asc";
     onRowHeaderSortChange?.(rowDimension, nextDirection);
   };
 
   const toggleRowMetricSort = () => {
     setRowValueSort(null);
     setActiveSortTarget({ kind: "total" });
-    setRowSort((current) => (current === "metric-desc" ? "metric-asc" : "metric-desc"));
+    setRowSort((current) =>
+      current === "metric-desc" ? "metric-asc" : "metric-desc",
+    );
   };
 
   const handleColumnAliasSortClick = (alias: string) => {
     setActiveSortTarget({ kind: "columnAlias", key: alias });
     const columnIndex = columnAxisKeys.indexOf(alias);
-    const columnDimension = columnIndex >= 0 ? (columnAxisDimensions[columnIndex] ?? alias) : alias;
+    const columnDimension =
+      columnIndex >= 0 ? (columnAxisDimensions[columnIndex] ?? alias) : alias;
     if (onColumnHeaderSortChange) {
       onColumnHeaderSortChange(columnDimension, "asc");
       return;
@@ -1118,7 +1294,11 @@ export default function PivotMatrix({
               <th
                 key={`${rowLabel}-part-${index}`}
                 rowSpan={rowSpan}
-                ref={rowIndex === 0 && freezeRowHeaders ? setFreezeBodyCellRef(index) : undefined}
+                ref={
+                  rowIndex === 0 && freezeRowHeaders
+                    ? setFreezeBodyCellRef(index)
+                    : undefined
+                }
                 className={
                   "border-b font-medium bg-card text-left align-top" +
                   (denseMode ? " px-1 py-0.5 text-[10px]" : " px-1.5 py-1")
@@ -1148,19 +1328,24 @@ export default function PivotMatrix({
           ) : null}
           {sortedColumns.map((columnLabel, columnIndex) => {
             const cellKey = `${rowLabel}::${columnLabel}`;
-            const value = pivot.cellMap.has(cellKey) ? pivot.cellMap.get(cellKey) : undefined;
+            const value = pivot.cellMap.has(cellKey)
+              ? pivot.cellMap.get(cellKey)
+              : undefined;
             return (
               <td
                 key={`${rowLabel}-${columnLabel}`}
                 ref={
                   rowIndex === 0 && freezeRowHeaders
                     ? setFreezeBodyCellRef(
-                        rowHeaderColumnCount + sparklineColumnCount + columnIndex,
+                        rowHeaderColumnCount +
+                          sparklineColumnCount +
+                          columnIndex,
                       )
                     : undefined
                 }
                 className={
-                  "border-b text-right" + (denseMode ? " px-1 py-0.5 text-[10px]" : " px-1.5 py-1")
+                  "border-b text-right" +
+                  (denseMode ? " px-1 py-0.5 text-[10px]" : " px-1.5 py-1")
                 }
               >
                 {formatMetric(value)}
@@ -1243,99 +1428,251 @@ export default function PivotMatrix({
 
   return (
     <div
-      className={"flex h-full min-h-0 flex-col gap-2" + (freezeRowHeaders ? "" : " overflow-auto")}
+      className={
+        "flex h-full min-h-0 flex-col gap-2" +
+        (freezeRowHeaders ? "" : " overflow-auto")
+      }
     >
-      <div className="flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
-        <label htmlFor="pivot-decimals" className="inline-flex items-center gap-1">
-          Decimals
-          <select
-            id="pivot-decimals"
-            value={decimalPrecision}
-            onChange={(event) => setDecimalPrecision(Number(event.target.value) as 0 | 1 | 2 | 3)}
-            className="rounded border bg-background px-1.5 py-1"
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <div className="inline-flex items-center rounded-md border bg-background p-0.5">
+          <span className="px-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+            Display
+          </span>
+          <div className="inline-flex items-center">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-r-none border-r-0 px-2 text-[11px]"
+              onClick={() => {
+                setDecimalPrecision(
+                  getNextOption(DECIMAL_OPTIONS, decimalPrecision),
+                );
+              }}
+            >
+              Decimals: {decimalPrecision}
+            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 rounded-l-none px-2"
+                  aria-label="Choose decimals"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-40 p-1">
+                <div className="flex flex-col gap-1">
+                  {DECIMAL_OPTIONS.map((option) => (
+                    <Button
+                      key={`decimal-${option}`}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 justify-start px-2 text-[11px]"
+                      onClick={() => {
+                        setDecimalPrecision(option);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          decimalPrecision === option
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                        aria-hidden="true"
+                      />
+                      {option}
+                    </Button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div className="inline-flex items-center pl-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-r-none border-r-0 px-2 text-[11px]"
+              onClick={() => {
+                const current = missingDisplay as MissingDisplayOption;
+                setMissingDisplay(
+                  getNextOption(MISSING_DISPLAY_OPTIONS, current),
+                );
+              }}
+            >
+              Missing:{" "}
+              {formatMissingDisplayOptionLabel(
+                missingDisplay as MissingDisplayOption,
+              )}
+            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 rounded-l-none px-2"
+                  aria-label="Choose missing value label"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-44 p-1">
+                <div className="flex flex-col gap-1">
+                  {MISSING_DISPLAY_OPTIONS.map((option) => (
+                    <Button
+                      key={`missing-${option === " " ? "blank" : option}`}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 justify-start px-2 text-[11px]"
+                      onClick={() => {
+                        setMissingDisplay(option);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          missingDisplay === option
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                        aria-hidden="true"
+                      />
+                      {formatMissingDisplayOptionLabel(option)}
+                    </Button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+
+        <div className="inline-flex items-center rounded-md border bg-background p-0.5">
+          <span className="px-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+            Numbers
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant={compactNumbers ? "secondary" : "ghost"}
+            className="h-7 px-2 text-[11px]"
+            onClick={() => {
+              setCompactNumbers((current) => !current);
+            }}
           >
-            <option value={0}>0</option>
-            <option value={1}>1</option>
-            <option value={2}>2</option>
-            <option value={3}>3</option>
-          </select>
-        </label>
-        <label htmlFor="pivot-missing-display" className="inline-flex items-center gap-1">
-          Missing
-          <select
-            id="pivot-missing-display"
-            value={missingDisplay}
-            onChange={(event) => setMissingDisplay(event.target.value)}
-            className="rounded border bg-background px-1.5 py-1"
+            Compact
+          </Button>
+        </div>
+
+        <div className="inline-flex items-center rounded-md border bg-background p-0.5">
+          <span className="px-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+            Sparkline
+          </span>
+          <div
+            role="radiogroup"
+            aria-label="Sparkline mode"
+            className="inline-flex items-center rounded-md border"
           >
-            <option value="-">-</option>
-            <option value=" "> </option>
-            <option value="null">null</option>
-            <option value="N/A">N/A</option>
-          </select>
-        </label>
-        <label htmlFor="pivot-show-totals" className="inline-flex items-center gap-1">
-          <input
-            id="pivot-show-totals"
-            type="checkbox"
-            checked={showTotals}
-            onChange={(event) => setShowTotals(event.target.checked)}
-          />
-          Show totals
-        </label>
-        <label htmlFor="pivot-compact" className="inline-flex items-center gap-1">
-          <input
-            id="pivot-compact"
-            type="checkbox"
-            checked={compactNumbers}
-            onChange={(event) => setCompactNumbers(event.target.checked)}
-          />
-          Compact
-        </label>
-        <label htmlFor="pivot-dense-mode" className="inline-flex items-center gap-1">
-          <input
-            id="pivot-dense-mode"
-            type="checkbox"
-            checked={denseMode}
-            onChange={(event) => setDenseMode(event.target.checked)}
-          />
-          Dense mode
-        </label>
-        <label htmlFor="pivot-sparse-mode" className="inline-flex items-center gap-1">
-          <input
-            id="pivot-sparse-mode"
-            type="checkbox"
-            checked={sparseMode}
-            onChange={(event) => setSparseMode(event.target.checked)}
-          />
-          Sparse mode
-        </label>
-        <label htmlFor="pivot-freeze-rows" className="inline-flex items-center gap-1">
-          <input
-            id="pivot-freeze-rows"
-            type="checkbox"
-            checked={freezeRowHeaders}
-            onChange={(event) => setFreezeRowHeaders(event.target.checked)}
-          />
-          Freeze row headers
-        </label>
-        <label htmlFor="pivot-sparklines" className="inline-flex items-center gap-1">
-          Sparklines
-          <select
-            id="pivot-sparklines"
-            value={sparklineMode}
-            onChange={(event) => setSparklineMode(event.target.value as SparklineMode)}
-            className="rounded border bg-background px-1.5 py-1"
+            <Button
+              type="button"
+              size="sm"
+              role="radio"
+              aria-checked={sparklineMode === "bar"}
+              aria-label="Bar sparkline"
+              variant={sparklineMode === "bar" ? "secondary" : "ghost"}
+              className="h-7 rounded-r-none px-2"
+              onClick={() => {
+                setSparklineMode("bar");
+              }}
+            >
+              <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              role="radio"
+              aria-checked={sparklineMode === "line"}
+              aria-label="Line sparkline"
+              variant={sparklineMode === "line" ? "secondary" : "ghost"}
+              className="h-7 rounded-none px-2"
+              onClick={() => {
+                setSparklineMode("line");
+              }}
+            >
+              <LineChart className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              role="radio"
+              aria-checked={sparklineMode === "off"}
+              aria-label="No sparkline"
+              variant={sparklineMode === "off" ? "secondary" : "ghost"}
+              className="h-7 rounded-l-none px-2"
+              onClick={() => {
+                setSparklineMode("off");
+              }}
+            >
+              <CircleOff className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+        <div className="inline-flex items-center rounded-md border bg-background p-0.5">
+          <span className="px-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+            Layout
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant={showTotals ? "secondary" : "ghost"}
+            className="h-7 px-2 text-[11px]"
+            onClick={() => {
+              setShowTotals((current) => !current);
+            }}
           >
-            <option value="off">Off</option>
-            <option value="bar">Bar</option>
-            <option value="line">Line</option>
-          </select>
-        </label>
-        {/* <span className="text-[10px] text-muted-foreground/80">
-          Row header click updates SQL ORDER BY. Column title/alias click sorts column labels.
-          Bottom column header click sorts rows by that column.
-        </span> */}
+            Totals
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={freezeRowHeaders ? "secondary" : "ghost"}
+            className="h-7 px-2 text-[11px]"
+            onClick={() => {
+              setFreezeRowHeaders((current) => !current);
+            }}
+          >
+            Freeze Rows
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={denseMode ? "secondary" : "ghost"}
+            className="h-7 px-2 text-[11px]"
+            onClick={() => {
+              setDenseMode((current) => !current);
+            }}
+          >
+            Dense
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={sparseMode ? "secondary" : "ghost"}
+            className="h-7 px-2 text-[11px]"
+            onClick={() => {
+              setSparseMode((current) => !current);
+            }}
+          >
+            Sparse
+          </Button>
+        </div>
       </div>
 
       {freezeRowHeaders ? (
@@ -1355,7 +1692,9 @@ export default function PivotMatrix({
                             colSpan={rowHeaderColumnCount}
                             className="border-b px-1.5 py-1 font-semibold text-right align-top bg-card z-30 cursor-pointer select-none"
                             style={{ position: "sticky", left: 0 }}
-                            onClick={() => handleColumnAliasSortClick(columnKey)}
+                            onClick={() =>
+                              handleColumnAliasSortClick(columnKey)
+                            }
                             title="Sort columns by label"
                           >
                             {columnKey + getColumnAliasSortIndicator(columnKey)}
@@ -1364,7 +1703,10 @@ export default function PivotMatrix({
                             <th className="border-b px-1.5 py-1 text-left font-semibold" />
                           ) : null}
                           {sortedColumns.map((_, columnIndex) => {
-                            const span = columnAxisHeaderSpans[columnLevelIndex][columnIndex];
+                            const span =
+                              columnAxisHeaderSpans[columnLevelIndex][
+                                columnIndex
+                              ];
                             if (span <= 0) {
                               return null;
                             }
@@ -1398,8 +1740,9 @@ export default function PivotMatrix({
                       onClick={() => handleRowHeaderSortClick(0)}
                       title="Sort Rows"
                     >
-                      {(showSeparateRowFields ? rowHeaderTitles[0] : rowHeaderTitle) +
-                        getRowHeaderSortIndicator(0)}
+                      {(showSeparateRowFields
+                        ? rowHeaderTitles[0]
+                        : rowHeaderTitle) + getRowHeaderSortIndicator(0)}
                     </th>
                     {showSeparateRowFields
                       ? rowHeaderTitles.slice(1).map((headerTitle, index) => (
@@ -1437,7 +1780,9 @@ export default function PivotMatrix({
                           ref={
                             span === 1
                               ? setFreezeHeaderCellRef(
-                                  rowHeaderColumnCount + sparklineColumnCount + columnIndex,
+                                  rowHeaderColumnCount +
+                                    sparklineColumnCount +
+                                    columnIndex,
                                 )
                               : undefined
                           }
@@ -1446,10 +1791,13 @@ export default function PivotMatrix({
                             "border-b px-1.5 py-1 align-top font-semibold cursor-pointer select-none " +
                             (span > 1 ? "text-left" : "text-right")
                           }
-                          onClick={() => handleColumnValueSortClick(columnLabel)}
+                          onClick={() =>
+                            handleColumnValueSortClick(columnLabel)
+                          }
                           title="Sort rows by this column"
                         >
-                          {(parsedColumnHeaders[columnIndex]?.measureLabel ?? columnLabel) +
+                          {(parsedColumnHeaders[columnIndex]?.measureLabel ??
+                            columnLabel) +
                             (activeSortTarget.kind === "measure" &&
                             activeSortTarget.key === columnLabel &&
                             rowValueSort?.columnLabel === columnLabel
@@ -1468,7 +1816,9 @@ export default function PivotMatrix({
                         title="Sort rows by total"
                       >
                         {"Total" +
-                          (activeSortTarget.kind === "total" ? rowMetricSortIndicator : "")}
+                          (activeSortTarget.kind === "total"
+                            ? rowMetricSortIndicator
+                            : "")}
                       </th>
                     ) : null}
                   </tr>
@@ -1480,7 +1830,9 @@ export default function PivotMatrix({
           <div
             ref={bodyScrollContainerRef}
             className="min-h-0 flex-1 overflow-auto"
-            onScroll={(event) => setBodyScrollLeft(event.currentTarget.scrollLeft)}
+            onScroll={(event) =>
+              setBodyScrollLeft(event.currentTarget.scrollLeft)
+            }
           >
             <table key={`${pivotTableKey}-body`} className={tableClass}>
               {freezeColGroup}
@@ -1507,7 +1859,8 @@ export default function PivotMatrix({
                         <th className="border-b px-1.5 py-1 text-left font-semibold" />
                       ) : null}
                       {sortedColumns.map((_, columnIndex) => {
-                        const span = columnAxisHeaderSpans[columnLevelIndex][columnIndex];
+                        const span =
+                          columnAxisHeaderSpans[columnLevelIndex][columnIndex];
                         if (span <= 0) {
                           return null;
                         }
@@ -1537,8 +1890,9 @@ export default function PivotMatrix({
                   onClick={() => handleRowHeaderSortClick(0)}
                   title="Sort Rows"
                 >
-                  {(showSeparateRowFields ? rowHeaderTitles[0] : rowHeaderTitle) +
-                    getRowHeaderSortIndicator(0)}
+                  {(showSeparateRowFields
+                    ? rowHeaderTitles[0]
+                    : rowHeaderTitle) + getRowHeaderSortIndicator(0)}
                 </th>
                 {showSeparateRowFields
                   ? rowHeaderTitles.slice(1).map((headerTitle, index) => (
@@ -1554,7 +1908,9 @@ export default function PivotMatrix({
                     ))
                   : null}
                 {sparklineMode !== "off" ? (
-                  <th className="border-b px-1.5 py-1 text-left font-semibold">Sparkline</th>
+                  <th className="border-b px-1.5 py-1 text-left font-semibold">
+                    Sparkline
+                  </th>
                 ) : null}
                 {sortedColumns.map((columnLabel, columnIndex) => {
                   const span = measureHeaderSpans[columnIndex];
@@ -1572,7 +1928,8 @@ export default function PivotMatrix({
                       onClick={() => handleColumnValueSortClick(columnLabel)}
                       title="Sort rows by this column"
                     >
-                      {(parsedColumnHeaders[columnIndex]?.measureLabel ?? columnLabel) +
+                      {(parsedColumnHeaders[columnIndex]?.measureLabel ??
+                        columnLabel) +
                         (activeSortTarget.kind === "measure" &&
                         activeSortTarget.key === columnLabel &&
                         rowValueSort?.columnLabel === columnLabel
@@ -1589,7 +1946,10 @@ export default function PivotMatrix({
                     onClick={toggleRowMetricSort}
                     title="Sort rows by total"
                   >
-                    {"Total" + (activeSortTarget.kind === "total" ? rowMetricSortIndicator : "")}
+                    {"Total" +
+                      (activeSortTarget.kind === "total"
+                        ? rowMetricSortIndicator
+                        : "")}
                   </th>
                 ) : null}
               </tr>

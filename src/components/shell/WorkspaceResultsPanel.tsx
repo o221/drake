@@ -6,7 +6,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PivotMatrix from "@/features/runtime/PivotMatrix";
 import ResultsTable from "@/features/runtime/ResultsTable";
 import type { QueryRow } from "@/features/runtime/duckdbRuntime";
-import { buildQueryFromSelection, type QueryBuilderSelection } from "@/features/query/querySql";
+import {
+  buildQueryFromSelection,
+  type QueryBuilderSelection,
+} from "@/features/query/querySql";
 
 interface ResultTabItem {
   id: string;
@@ -45,8 +48,14 @@ interface WorkspaceResultsPanelProps {
   activeColumnAxisDimensions: string[];
   activeColumnSortDirections?: Record<string, "asc" | "desc">;
   activeColumnSortPriority?: string[];
-  onPivotRowHeaderSortChange?: (rowDimension: string, direction: "asc" | "desc") => void;
-  onPivotColumnHeaderSortChange?: (columnDimension: string, direction: "asc" | "desc") => void;
+  onPivotRowHeaderSortChange?: (
+    rowDimension: string,
+    direction: "asc" | "desc",
+  ) => void;
+  onPivotColumnHeaderSortChange?: (
+    columnDimension: string,
+    direction: "asc" | "desc",
+  ) => void;
   datasourceFromClauseSql?: string;
   runQueryAndSyncEditor: (nextSql: string) => Promise<QueryRow[] | undefined>;
   lastQuery: string;
@@ -136,7 +145,9 @@ export default function WorkspaceResultsPanel({
     }
   };
 
-  const handleLastQuerySwipeEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handleLastQuerySwipeEnd = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
     const start = lastQuerySwipeStartRef.current;
     if (!start) {
       return;
@@ -152,7 +163,8 @@ export default function WorkspaceResultsPanel({
   };
 
   const tableTab = resultTabs.find((tab) => tab.id === "all-columns") ?? null;
-  const resultTabsValue = activeResultTabId === "all-columns" ? "all-columns" : resultView;
+  const resultTabsValue =
+    activeResultTabId === "all-columns" ? "all-columns" : resultView;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col rounded-2xl border bg-card p-4 shadow-sm">
@@ -167,7 +179,7 @@ export default function WorkspaceResultsPanel({
                   handleShowRaw();
                 }}
               >
-                Result
+                Raw Result
               </TabsTrigger>
               {showPivotRowsTabs ? (
                 <TabsTrigger
@@ -178,7 +190,7 @@ export default function WorkspaceResultsPanel({
                   }}
                   disabled={!canRenderPivot}
                 >
-                  Pivoted
+                  Friendly View
                 </TabsTrigger>
               ) : null}
               {showPivotRowsTabs ? (
@@ -189,7 +201,7 @@ export default function WorkspaceResultsPanel({
                     handleShowRows();
                   }}
                 >
-                  Unpivoted
+                  Data Grid
                 </TabsTrigger>
               ) : null}
               {hasTableTabResult ? (
@@ -251,7 +263,9 @@ export default function WorkspaceResultsPanel({
       <div className="flex-1 min-h-0 overflow-hidden rounded-md border bg-background p-3">
         {errorMessage ? (
           <p className="text-xs text-destructive">{errorMessage}</p>
-        ) : resultView === "pivot" && canRenderPivot && activeResultTabId !== "all-columns" ? (
+        ) : resultView === "pivot" &&
+          canRenderPivot &&
+          activeResultTabId !== "all-columns" ? (
           <PivotMatrix
             rows={rawResultRows.length ? rawResultRows : lastResult}
             rowAxisKeys={activeRowAxisKeys}
@@ -267,7 +281,9 @@ export default function WorkspaceResultsPanel({
           />
         ) : resultView === "raw" ? (
           <div className="h-full min-h-0 overflow-auto">
-            <ResultsTable rows={rawResultRows.length ? rawResultRows : lastResult} />
+            <ResultsTable
+              rows={rawResultRows.length ? rawResultRows : lastResult}
+            />
           </div>
         ) : (
           <div className="h-full min-h-0 overflow-auto">
@@ -291,7 +307,9 @@ export default function WorkspaceResultsPanel({
         >
           <span className="inline-flex w-full items-start gap-1 rounded-md px-1 py-1 transition-colors group-hover:bg-accent/40 group-focus-visible:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60">
             <span className="shrink-0">Last query:</span>
-            <span className="min-w-0 flex-1 truncate text-foreground">{lastQuery || "(none)"}</span>
+            <span className="min-w-0 flex-1 truncate text-foreground">
+              {lastQuery || "(none)"}
+            </span>
           </span>
         </button>
 
@@ -346,7 +364,9 @@ export default function WorkspaceResultsPanel({
               </pre>
             </div>
             <div className="border-t px-3 py-2 text-[10px] text-muted-foreground">
-              {isLastQueryCopied ? "Copied to clipboard" : "SQL for the selected view mode."}
+              {isLastQueryCopied
+                ? "Copied to clipboard"
+                : "SQL for the selected view mode."}
             </div>
           </div>
         ) : null}

@@ -23,7 +23,10 @@ import { DrawerSection } from "@/components/shell/WorkspaceShellDrawerSection";
 import WorkspaceResultsPanel from "@/components/shell/WorkspaceResultsPanel";
 import AttributesPanel from "@/features/attributes/AttributesPanel";
 import DataSourcesPanel from "@/features/datasources/DataSourcesPanel";
-import type { DataSourceItem, UrlDataSourceInput } from "@/features/datasources/dataSourcesAdapter";
+import type {
+  DataSourceItem,
+  UrlDataSourceInput,
+} from "@/features/datasources/dataSourcesAdapter";
 import {
   getDatasourceColumns,
   getDatasourceQueryContext,
@@ -40,7 +43,10 @@ import {
   reverseParseQueryFromSql,
   type QueryBuilderSelection,
 } from "@/features/query/querySql";
-import SqlEditor, { type QueryPresetItem, type QueryHistoryItem } from "@/features/query/SqlEditor";
+import SqlEditor, {
+  type QueryPresetItem,
+  type QueryHistoryItem,
+} from "@/features/query/SqlEditor";
 import ExportResultsDialog from "@/features/runtime/ExportResultsDialog";
 import type { QueryRow } from "@/features/runtime/duckdbRuntime";
 import { useDuckDbRuntime } from "@/features/runtime/useDuckDbRuntime";
@@ -48,6 +54,7 @@ import SecretsDialog from "@/features/settings/SecretsDialog";
 import SettingsDialog from "@/features/settings/SettingsDialog";
 import { useSettings } from "@/features/settings/useSettings";
 import { Toaster } from "@/components/ui/toaster";
+import { cn } from "@/lib/utils";
 import type { DataSourceColumn, FilterExpression } from "@/types";
 
 interface WorkspacePreset extends QueryPresetItem {
@@ -76,14 +83,20 @@ function persistQueryPresets(presets: WorkspacePreset[]) {
   }
 
   try {
-    window.localStorage.setItem(QUERY_PRESETS_STORAGE_KEY, JSON.stringify(presets));
+    window.localStorage.setItem(
+      QUERY_PRESETS_STORAGE_KEY,
+      JSON.stringify(presets),
+    );
   } catch {
     // ignore storage failures
   }
 }
 
 function createId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -120,8 +133,17 @@ function buildAliasRemapByColumn(
 ): Map<string, Map<string, string>> {
   const remapByColumn = new Map<string, Map<string, string>>();
 
-  const setAliasRemap = (column: string, previousAlias: string, nextAlias: string) => {
-    if (!column || !previousAlias || !nextAlias || previousAlias === nextAlias) {
+  const setAliasRemap = (
+    column: string,
+    previousAlias: string,
+    nextAlias: string,
+  ) => {
+    if (
+      !column ||
+      !previousAlias ||
+      !nextAlias ||
+      previousAlias === nextAlias
+    ) {
       return;
     }
     if (!remapByColumn.has(column)) {
@@ -144,14 +166,23 @@ function buildAliasRemapByColumn(
 
   sharedDimensions.forEach((dimension) => {
     const column = getDerivedDimensionColumn(dimension) ?? dimension;
-    const previousAlias = getDimensionDisplayLabel(dimension, previousSelection.dimensionAliases);
-    const nextAlias = getDimensionDisplayLabel(dimension, nextSelection.dimensionAliases);
+    const previousAlias = getDimensionDisplayLabel(
+      dimension,
+      previousSelection.dimensionAliases,
+    );
+    const nextAlias = getDimensionDisplayLabel(
+      dimension,
+      nextSelection.dimensionAliases,
+    );
     setAliasRemap(column, previousAlias, nextAlias);
   });
 
   const previousMeasures = deriveMeasureAliases(previousSelection.measures);
   const nextMeasures = deriveMeasureAliases(nextSelection.measures);
-  const sharedMeasureCount = Math.min(previousMeasures.length, nextMeasures.length);
+  const sharedMeasureCount = Math.min(
+    previousMeasures.length,
+    nextMeasures.length,
+  );
 
   for (let index = 0; index < sharedMeasureCount; index += 1) {
     const previous = previousMeasures[index];
@@ -177,7 +208,12 @@ interface UrlWorkspaceState {
   filters: Array<
     Pick<
       FilterExpression,
-      "column" | "columnType" | "type" | "values" | "onAggregates" | "aggregateAlias"
+      | "column"
+      | "columnType"
+      | "type"
+      | "values"
+      | "onAggregates"
+      | "aggregateAlias"
     >
   >;
   limitEnabled: boolean;
@@ -210,9 +246,13 @@ function parseWebDatasourceId(id: string): UrlDataSourceInput | null {
   return { url, format };
 }
 
-function parseMssqlDatasourceId(
-  id: string,
-): { id: string; title: string; origin: string; type: string; status: string } | null {
+function parseMssqlDatasourceId(id: string): {
+  id: string;
+  title: string;
+  origin: string;
+  type: string;
+  status: string;
+} | null {
   if (!id.startsWith("mssql:")) {
     return null;
   }
@@ -245,7 +285,9 @@ function getInitialResultTabs(): {
   ];
 }
 
-function isQueryBuilderSelectionLike(value: unknown): value is QueryBuilderSelection {
+function isQueryBuilderSelectionLike(
+  value: unknown,
+): value is QueryBuilderSelection {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -268,7 +310,8 @@ function parseUrlWorkspaceState(): UrlWorkspaceState | null {
     ? window.location.hash.slice(1)
     : window.location.hash;
   const hashParams = new URLSearchParams(hash);
-  const raw = searchParams.get(URL_STATE_HASH_KEY) ?? hashParams.get(URL_STATE_HASH_KEY);
+  const raw =
+    searchParams.get(URL_STATE_HASH_KEY) ?? hashParams.get(URL_STATE_HASH_KEY);
   if (!raw) {
     return null;
   }
@@ -290,7 +333,8 @@ function parseUrlWorkspaceState(): UrlWorkspaceState | null {
 
     return {
       v: 1,
-      datasourceId: typeof parsed.datasourceId === "string" ? parsed.datasourceId : "",
+      datasourceId:
+        typeof parsed.datasourceId === "string" ? parsed.datasourceId : "",
       selection: parsed.selection,
       filters,
       limitEnabled: parsed.limitEnabled !== false,
@@ -301,14 +345,21 @@ function parseUrlWorkspaceState(): UrlWorkspaceState | null {
             ? "presets"
             : "pivot",
       resultView:
-        parsed.resultView === "rows" ? "rows" : parsed.resultView === "raw" ? "raw" : "pivot",
+        parsed.resultView === "rows"
+          ? "rows"
+          : parsed.resultView === "raw"
+            ? "raw"
+            : "pivot",
     };
   } catch {
     return null;
   }
 }
 
-function writeUrlWorkspaceState(serializedState: string, mode: "push" | "replace") {
+function writeUrlWorkspaceState(
+  serializedState: string,
+  mode: "push" | "replace",
+) {
   if (typeof window === "undefined") {
     return;
   }
@@ -336,7 +387,8 @@ export default function WorkspaceShellModern() {
     addUrlDatasource,
   } = useDataSources();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [pendingHistoryItem, setPendingHistoryItem] = useState<QueryHistoryItem | null>(null);
+  const [pendingHistoryItem, setPendingHistoryItem] =
+    useState<QueryHistoryItem | null>(null);
   const { toast } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [drawerWidth, setDrawerWidth] = useState<number>(384);
@@ -344,7 +396,9 @@ export default function WorkspaceShellModern() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSecretsOpen, setIsSecretsOpen] = useState(false);
   const [selectedDatasourceId, setSelectedDatasourceId] = useState<string>("");
-  const [datasourceColumns, setDatasourceColumns] = useState<DataSourceColumn[]>([]);
+  const [datasourceColumns, setDatasourceColumns] = useState<
+    DataSourceColumn[]
+  >([]);
   const [datasourceContext, setDatasourceContext] = useState<{
     caption: string;
     fromClauseSql: string;
@@ -354,18 +408,27 @@ export default function WorkspaceShellModern() {
     getDefaultQuerySelection(buildQueryBuilderModel([])),
   );
   const [filters, setFilters] = useState<FilterExpression[]>([]);
-  const [presets, setPresets] = useState<WorkspacePreset[]>(() => loadQueryPresets());
+  const [presets, setPresets] = useState<WorkspacePreset[]>(() =>
+    loadQueryPresets(),
+  );
   const [resultView, setResultView] = useState<"raw" | "pivot" | "rows">("raw");
   const [rawResultRows, setRawResultRows] = useState<QueryRow[]>([]);
   const [rawResultSql, setRawResultSql] = useState<string>("");
 
   // Custom tabs for results
   const [resultTabs, setResultTabs] = useState<
-    { id: string; label: string; query: string | null; selection: QueryBuilderSelection | null }[]
+    {
+      id: string;
+      label: string;
+      query: string | null;
+      selection: QueryBuilderSelection | null;
+    }[]
   >(() => getInitialResultTabs());
   const [activeResultTabId, setActiveResultTabId] = useState<string>("main");
   const [editorSqlSeed, setEditorSqlSeed] = useState<string>("");
-  const [activeMainTab, setActiveMainTab] = useState<"pivot" | "sql" | "presets">("pivot");
+  const [activeMainTab, setActiveMainTab] = useState<
+    "pivot" | "sql" | "presets"
+  >("pivot");
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [drawerSections, setDrawerSections] = useState({
     sources: true,
@@ -431,7 +494,9 @@ export default function WorkspaceShellModern() {
     if (typeof window === "undefined") {
       return;
     }
-    const persistedWorkspaceOpen = window.localStorage.getItem("drake.workspaceOpen");
+    const persistedWorkspaceOpen = window.localStorage.getItem(
+      "drake.workspaceOpen",
+    );
     if (persistedWorkspaceOpen === "0") {
       setWorkspaceOpen(false);
     }
@@ -441,7 +506,10 @@ export default function WorkspaceShellModern() {
     if (typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem("drake.workspaceOpen", workspaceOpen ? "1" : "0");
+    window.localStorage.setItem(
+      "drake.workspaceOpen",
+      workspaceOpen ? "1" : "0",
+    );
   }, [workspaceOpen]);
 
   const startDrawerResize = (startClientX: number) => {
@@ -464,7 +532,10 @@ export default function WorkspaceShellModern() {
       dragDeltaRef.current = Math.max(dragDeltaRef.current, Math.abs(delta));
       const next = Math.max(
         200,
-        Math.min((window.innerWidth || 1200) * 0.9, startWidthRef.current + delta),
+        Math.min(
+          (window.innerWidth || 1200) * 0.9,
+          startWidthRef.current + delta,
+        ),
       );
       setDrawerWidth(next);
     };
@@ -472,7 +543,10 @@ export default function WorkspaceShellModern() {
     const onUp = () => {
       if (draggingRef.current) {
         draggingRef.current = false;
-        window.localStorage.setItem("drake.drawerWidth", String(drawerWidthRef.current));
+        window.localStorage.setItem(
+          "drake.drawerWidth",
+          String(drawerWidthRef.current),
+        );
         // Prevent click-through toggles that can fire right after a drag-resize release.
         if (dragDeltaRef.current > 3) {
           window.addEventListener("click", suppressNextClick, true);
@@ -510,7 +584,8 @@ export default function WorkspaceShellModern() {
   };
 
   const extractLocalDatasourceIdFromSql = (sql: string): string | null => {
-    const fileMatch = /read_(csv_auto|parquet|json)\(\s*(['"])([^'"\)]+)\2\s*\)/i.exec(sql);
+    const fileMatch =
+      /read_(csv_auto|parquet|json)\(\s*(['"])([^'"\)]+)\2\s*\)/i.exec(sql);
     if (fileMatch) {
       const format = fileMatch[1].toLowerCase() as UrlDataSourceInput["format"];
       const path = fileMatch[3];
@@ -525,7 +600,8 @@ export default function WorkspaceShellModern() {
       return path;
     }
 
-    const fromMatch = /from\s+(?:read_[a-zA-Z0-9_]*\(|)(['"])([^'"\)]+)\1/i.exec(sql);
+    const fromMatch =
+      /from\s+(?:read_[a-zA-Z0-9_]*\(|)(['"])([^'"\)]+)\1/i.exec(sql);
     if (!fromMatch) {
       return null;
     }
@@ -597,7 +673,8 @@ export default function WorkspaceShellModern() {
     setDrawerSections({ sources: true, attributes: true, filters: true });
 
     if (options?.openFileDialogIfMissing) {
-      const input = fileInputRef.current ?? document.getElementById("ds-upload");
+      const input =
+        fileInputRef.current ?? document.getElementById("ds-upload");
       if (input) {
         input.click?.();
       }
@@ -612,8 +689,13 @@ export default function WorkspaceShellModern() {
 
   const { settings } = useSettings();
 
-  const handleQueryBuilderSelectionChange = (nextSelection: QueryBuilderSelection) => {
-    const aliasRemapByColumn = buildAliasRemapByColumn(selection, nextSelection);
+  const handleQueryBuilderSelectionChange = (
+    nextSelection: QueryBuilderSelection,
+  ) => {
+    const aliasRemapByColumn = buildAliasRemapByColumn(
+      selection,
+      nextSelection,
+    );
     setSelection(nextSelection);
 
     if (aliasRemapByColumn.size === 0) {
@@ -649,7 +731,8 @@ export default function WorkspaceShellModern() {
 
   useEffect(() => {
     const hasSelectedDatasource = Boolean(
-      selectedDatasourceId && datasources.some((item) => item.id === selectedDatasourceId),
+      selectedDatasourceId &&
+      datasources.some((item) => item.id === selectedDatasourceId),
     );
     if (!hasSelectedDatasource) {
       setDrawerOpen(true);
@@ -660,7 +743,8 @@ export default function WorkspaceShellModern() {
   useEffect(() => {
     const previousDatasourceId = previousDatasourceIdRef.current;
     const hasDatasourceChanged =
-      Boolean(previousDatasourceId) && previousDatasourceId !== selectedDatasourceId;
+      Boolean(previousDatasourceId) &&
+      previousDatasourceId !== selectedDatasourceId;
     previousDatasourceIdRef.current = selectedDatasourceId;
 
     if (!hasDatasourceChanged) {
@@ -668,8 +752,6 @@ export default function WorkspaceShellModern() {
     }
 
     if (isLoadingPresetRef.current || isLoadingHistoryRef.current) {
-      isLoadingPresetRef.current = false;
-      isLoadingHistoryRef.current = false;
       return;
     }
 
@@ -718,7 +800,9 @@ export default function WorkspaceShellModern() {
 
       setIsLoadingMetadata(true);
       try {
-        const datasource = datasources.find((item) => item.id === selectedDatasourceId);
+        const datasource = datasources.find(
+          (item) => item.id === selectedDatasourceId,
+        );
         const [columns, context] = await Promise.all([
           getDatasourceColumns(selectedDatasourceId),
           getDatasourceQueryContext(selectedDatasourceId),
@@ -758,15 +842,25 @@ export default function WorkspaceShellModern() {
     ) {
       setSelection(defaultSelection);
     }
-  }, [queryBuilderModel, selection.rowDimensions.length, selection.columnDimensions.length]);
+  }, [
+    queryBuilderModel,
+    selection.rowDimensions.length,
+    selection.columnDimensions.length,
+  ]);
 
   useEffect(() => {
     persistQueryPresets(presets);
   }, [presets]);
 
   const sql = useMemo(() => {
-    const effectiveSelection = limitEnabled ? selection : { ...selection, limit: -1 };
-    return buildQueryFromSelection(effectiveSelection, datasourceContext?.fromClauseSql, filters);
+    const effectiveSelection = limitEnabled
+      ? selection
+      : { ...selection, limit: -1 };
+    return buildQueryFromSelection(
+      effectiveSelection,
+      datasourceContext?.fromClauseSql,
+      filters,
+    );
   }, [datasourceContext?.fromClauseSql, selection, filters]);
   const shouldKeepPivotOnMainQueryChange =
     resultView === "pivot" &&
@@ -780,6 +874,12 @@ export default function WorkspaceShellModern() {
   }, [activeMainTab, sql, editorSqlSeed]);
 
   useEffect(() => {
+    if (pendingHistoryItem) {
+      return;
+    }
+    if (isLoadingPresetRef.current || isLoadingHistoryRef.current) {
+      return;
+    }
     if (resultView !== "pivot") {
       return;
     }
@@ -795,6 +895,7 @@ export default function WorkspaceShellModern() {
 
     void runQueryAndCaptureRaw(sql);
   }, [
+    pendingHistoryItem,
     resultView,
     activeResultTabId,
     datasourceContext?.fromClauseSql,
@@ -806,6 +907,9 @@ export default function WorkspaceShellModern() {
   // Auto-run effect: trigger query only when the SQL string changes
   const lastAutoRunSql = useRef<string | null>(null);
   useEffect(() => {
+    if (pendingHistoryItem) {
+      return;
+    }
     if (!settings.autoRunQueries) {
       lastAutoRunSql.current = null;
       return;
@@ -827,6 +931,7 @@ export default function WorkspaceShellModern() {
       }
     });
   }, [
+    pendingHistoryItem,
     sql,
     settings.autoRunQueries,
     selectedDatasourceId,
@@ -837,6 +942,12 @@ export default function WorkspaceShellModern() {
   ]);
 
   useEffect(() => {
+    if (pendingHistoryItem) {
+      return;
+    }
+    if (isLoadingPresetRef.current || isLoadingHistoryRef.current) {
+      return;
+    }
     if (!pendingUrlHydrationRef.current) {
       return;
     }
@@ -853,7 +964,12 @@ export default function WorkspaceShellModern() {
     pendingUrlHydrationRef.current = false;
     setActiveResultTabId("main");
     void runQueryAndCaptureRaw(sql);
-  }, [datasourceContext?.fromClauseSql, selectedDatasourceId, sql]);
+  }, [
+    pendingHistoryItem,
+    datasourceContext?.fromClauseSql,
+    selectedDatasourceId,
+    sql,
+  ]);
 
   useEffect(() => {
     if (!isLoadingPresetRef.current) {
@@ -872,7 +988,9 @@ export default function WorkspaceShellModern() {
   const filteredColumns = useMemo(
     () =>
       datasourceColumns.filter((column) =>
-        `${column.name} ${column.type}`.toLowerCase().includes(drawerSearch.toLowerCase()),
+        `${column.name} ${column.type}`
+          .toLowerCase()
+          .includes(drawerSearch.toLowerCase()),
       ),
     [datasourceColumns, drawerSearch],
   );
@@ -889,7 +1007,8 @@ export default function WorkspaceShellModern() {
   const filteredFilters = useMemo(
     () =>
       filters.filter((filter) => {
-        const haystack = `${filter.column} ${filter.type} ${filter.values.join(" ")}`.toLowerCase();
+        const haystack =
+          `${filter.column} ${filter.type} ${filter.values.join(" ")}`.toLowerCase();
         return haystack.includes(drawerSearch.toLowerCase());
       }),
     [drawerSearch, filters],
@@ -908,11 +1027,16 @@ export default function WorkspaceShellModern() {
       map.get(column)?.add(alias);
     };
 
-    [...selection.rowDimensions, ...selection.columnDimensions].forEach((dimension) => {
-      const sourceColumn = getDerivedDimensionColumn(dimension) ?? dimension;
-      const alias = getDimensionDisplayLabel(dimension, selection.dimensionAliases);
-      addAlias(sourceColumn, alias);
-    });
+    [...selection.rowDimensions, ...selection.columnDimensions].forEach(
+      (dimension) => {
+        const sourceColumn = getDerivedDimensionColumn(dimension) ?? dimension;
+        const alias = getDimensionDisplayLabel(
+          dimension,
+          selection.dimensionAliases,
+        );
+        addAlias(sourceColumn, alias);
+      },
+    );
 
     deriveMeasureAliases(selection.measures).forEach((item) => {
       if (!item.column || item.column === "*") {
@@ -921,12 +1045,15 @@ export default function WorkspaceShellModern() {
       addAlias(item.column, item.alias);
     });
 
-    return Array.from(map.entries()).reduce<Record<string, string[]>>((acc, [column, aliases]) => {
-      if (aliases.size > 0) {
-        acc[column] = Array.from(aliases);
-      }
-      return acc;
-    }, {});
+    return Array.from(map.entries()).reduce<Record<string, string[]>>(
+      (acc, [column, aliases]) => {
+        if (aliases.size > 0) {
+          acc[column] = Array.from(aliases);
+        }
+        return acc;
+      },
+      {},
+    );
   }, [
     selection.columnDimensions,
     selection.dimensionAliases,
@@ -951,7 +1078,10 @@ export default function WorkspaceShellModern() {
           return filter;
         }
 
-        if (filter.aggregateAlias && aliasOptions.includes(filter.aggregateAlias)) {
+        if (
+          filter.aggregateAlias &&
+          aliasOptions.includes(filter.aggregateAlias)
+        ) {
           return filter;
         }
 
@@ -969,31 +1099,36 @@ export default function WorkspaceShellModern() {
   const filteredPresetCount = useMemo(
     () =>
       presets.filter((preset) =>
-        `${preset.name} ${preset.datasourceId}`.toLowerCase().includes(drawerSearch.toLowerCase()),
+        `${preset.name} ${preset.datasourceId}`
+          .toLowerCase()
+          .includes(drawerSearch.toLowerCase()),
       ).length,
     [drawerSearch, presets],
   );
 
   const loadedPresets = useMemo(
-    () => presets.filter((preset) => datasources.some((item) => item.id === preset.datasourceId)),
+    () =>
+      presets.filter((preset) =>
+        datasources.some((item) => item.id === preset.datasourceId),
+      ),
     [datasources, presets],
   );
 
   const filteredPresets = useMemo(
     () =>
-      loadedPresets.filter((preset) =>
+      presets.filter((preset) =>
         `${preset.name} ${preset.sql} ${preset.datasourceId}`
           .toLowerCase()
           .includes(presetQuery.toLowerCase()),
       ),
-    [presetQuery, loadedPresets],
+    [presetQuery, presets],
   );
 
   useEffect(() => {
-    if (activeMainTab === "presets" && loadedPresets.length === 0) {
+    if (activeMainTab === "presets" && presets.length === 0) {
       setActiveMainTab("pivot");
     }
-  }, [activeMainTab, loadedPresets.length]);
+  }, [activeMainTab, presets.length]);
 
   const processingChip = useMemo(() => {
     if (!selectedDatasourceId) {
@@ -1012,7 +1147,8 @@ export default function WorkspaceShellModern() {
 
     return {
       label: "DuckDB Local",
-      className: "border border-emerald-500/30 bg-emerald-500/10 text-emerald-700",
+      className:
+        "border border-emerald-500/30 bg-emerald-500/10 text-emerald-700",
     };
   }, [selectedDatasourceId]);
 
@@ -1043,7 +1179,14 @@ export default function WorkspaceShellModern() {
     writeUrlWorkspaceState(serialized, mode);
     hasInitializedUrlStateRef.current = true;
     lastSerializedUrlStateRef.current = serialized;
-  }, [selectedDatasourceId, selection, filters, limitEnabled, activeMainTab, resultView]);
+  }, [
+    selectedDatasourceId,
+    selection,
+    filters,
+    limitEnabled,
+    activeMainTab,
+    resultView,
+  ]);
 
   const handleSavePreset = (bookmark: QueryPresetItem) => {
     const nextPreset: WorkspacePreset = {
@@ -1055,7 +1198,9 @@ export default function WorkspaceShellModern() {
   };
 
   const handleSavePresetClick = () => {
-    const name = window.prompt("Save bookmark name", `Bookmark ${presets.length + 1}`)?.trim();
+    const name = window
+      .prompt("Save bookmark name", `Bookmark ${presets.length + 1}`)
+      ?.trim();
     if (!name) {
       return;
     }
@@ -1087,16 +1232,25 @@ export default function WorkspaceShellModern() {
     setDrawerSections({ sources: true, attributes: true, filters: true });
     isLoadingPresetRef.current = true;
     isLoadingHistoryRef.current = true;
+    setSelection(getDefaultQuerySelection(queryBuilderModel));
+    setFilters([]);
+    setEditorSqlSeed("");
+    setResultTabs(getInitialResultTabs());
+    setActiveResultTabId("main");
+    setResultView("raw");
+    setActiveMainTab("pivot");
     resetRuntimeState();
     setRawResultRows([]);
     setRawResultSql("");
+    lastAutoRunSql.current = null;
 
     const inferredDatasourceId =
       historyItem.datasourceId ??
       ((): string | null => {
-        const fileMatch = /read_(csv_auto|parquet|json)\(\s*(['"])([^'"\)]+)\2\s*\)/i.exec(
-          historyItem.sql,
-        );
+        const fileMatch =
+          /read_(csv_auto|parquet|json)\(\s*(['"])([^'"\)]+)\2\s*\)/i.exec(
+            historyItem.sql,
+          );
         if (fileMatch) {
           const path = fileMatch[3];
           try {
@@ -1110,9 +1264,10 @@ export default function WorkspaceShellModern() {
           return path;
         }
 
-        const fromMatch = /from\s+(?:read_[a-zA-Z0-9_]*\(|)(['"])([^'"\)]+)\1/i.exec(
-          historyItem.sql,
-        );
+        const fromMatch =
+          /from\s+(?:read_[a-zA-Z0-9_]*\(|)(['"])([^'"\)]+)\1/i.exec(
+            historyItem.sql,
+          );
         if (!fromMatch) {
           return null;
         }
@@ -1245,7 +1400,9 @@ export default function WorkspaceShellModern() {
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean)
-        .map((value) => (value === "distinct_count" ? "count_distinct" : value));
+        .map((value) =>
+          value === "distinct_count" ? "count_distinct" : value,
+        );
       const uniqueFnKeys = Array.from(new Set(fnKeys));
       if (!uniqueFnKeys.length) {
         return;
@@ -1257,7 +1414,8 @@ export default function WorkspaceShellModern() {
         );
       const isTextType = (columnType: string): boolean =>
         /char|varchar|string|text|uuid/i.test(columnType || "");
-      const isTemporalType = (columnType: string): boolean => /date|time/i.test(columnType || "");
+      const isTemporalType = (columnType: string): boolean =>
+        /date|time/i.test(columnType || "");
       const supportsFn = (columnType: string, fnKey: string): boolean => {
         if (
           fnKey === "geomean" ||
@@ -1269,11 +1427,23 @@ export default function WorkspaceShellModern() {
         ) {
           return isNumericType(columnType);
         }
-        if (fnKey === "histogram" || fnKey === "list" || fnKey === "unique_values") {
-          return isNumericType(columnType) || isTextType(columnType) || isTemporalType(columnType);
+        if (
+          fnKey === "histogram" ||
+          fnKey === "list" ||
+          fnKey === "unique_values"
+        ) {
+          return (
+            isNumericType(columnType) ||
+            isTextType(columnType) ||
+            isTemporalType(columnType)
+          );
         }
         if (fnKey === "entropy" || fnKey === "median" || fnKey === "mode") {
-          return isNumericType(columnType) || isTextType(columnType) || isTemporalType(columnType);
+          return (
+            isNumericType(columnType) ||
+            isTextType(columnType) ||
+            isTemporalType(columnType)
+          );
         }
         if (fnKey === "count" || fnKey === "count_distinct") {
           return true;
@@ -1282,19 +1452,27 @@ export default function WorkspaceShellModern() {
           return isNumericType(columnType);
         }
         if (fnKey === "min" || fnKey === "max") {
-          return isNumericType(columnType) || isTemporalType(columnType) || isTextType(columnType);
+          return (
+            isNumericType(columnType) ||
+            isTemporalType(columnType) ||
+            isTextType(columnType)
+          );
         }
         return false;
       };
       const quoteIdentifier = (identifier: string): string =>
         `"${identifier.split('"').join('""')}"`;
       const toLabel = (value: string): string => value.split("_").join(" ");
-      const quoteLiteral = (value: string): string => `'${value.replace(/'/g, "''")}'`;
+      const quoteLiteral = (value: string): string =>
+        `'${value.replace(/'/g, "''")}'`;
       const isNumericLikeType = (columnType?: string): boolean =>
         /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
           columnType || "",
         );
-      const toTypedLiteral = (columnType: string | undefined, value: string): string => {
+      const toTypedLiteral = (
+        columnType: string | undefined,
+        value: string,
+      ): string => {
         if (isNumericLikeType(columnType)) {
           const numericValue = Number(value);
           if (Number.isFinite(numericValue)) {
@@ -1310,12 +1488,17 @@ export default function WorkspaceShellModern() {
       const tableAlias = aliasMatch
         ? (aliasMatch[2] ?? aliasMatch[3] ?? "__drake_data_foundation")
         : "__drake_data_foundation";
-      const quotedTableAlias = tableAlias.startsWith('"') ? tableAlias : `"${tableAlias}"`;
+      const quotedTableAlias = tableAlias.startsWith('"')
+        ? tableAlias
+        : `"${tableAlias}"`;
 
-      const columnTypeByName = datasourceColumns.reduce<Record<string, string>>((acc, column) => {
-        acc[column.name] = column.type;
-        return acc;
-      }, {});
+      const columnTypeByName = datasourceColumns.reduce<Record<string, string>>(
+        (acc, column) => {
+          acc[column.name] = column.type;
+          return acc;
+        },
+        {},
+      );
 
       const whereParts: string[] = [];
       const havingParts: string[] = [];
@@ -1323,7 +1506,9 @@ export default function WorkspaceShellModern() {
       filters.forEach((filter) => {
         const col = `${quotedTableAlias}.${quoteIdentifier(filter.column)}`;
         const columnType = filter.columnType ?? columnTypeByName[filter.column];
-        const aggregateExpr = isNumericLikeType(columnType) ? `AVG(${col})` : `MAX(${col})`;
+        const aggregateExpr = isNumericLikeType(columnType)
+          ? `AVG(${col})`
+          : `MAX(${col})`;
         const expr = filter.onAggregates ? aggregateExpr : col;
 
         let predicate = "";
@@ -1414,9 +1599,14 @@ export default function WorkspaceShellModern() {
           whereParts.push(predicate);
         }
       });
-      const whereClause = whereParts.length > 0 ? `\n  WHERE ${whereParts.join("\n    AND ")}` : "";
+      const whereClause =
+        whereParts.length > 0
+          ? `\n  WHERE ${whereParts.join("\n    AND ")}`
+          : "";
       const havingClause =
-        havingParts.length > 0 ? `\n  HAVING ${havingParts.join("\n    AND ")}` : "";
+        havingParts.length > 0
+          ? `\n  HAVING ${havingParts.join("\n    AND ")}`
+          : "";
 
       const eligibleColumns = datasourceColumns.filter((column) =>
         uniqueFnKeys.some((fnKey) => supportsFn(column.type, fnKey)),
@@ -1476,7 +1666,9 @@ export default function WorkspaceShellModern() {
             const escapedAggregate = toLabel(fnKey).split("'").join("''");
             const filterSelect = aggregateFilterAliases.length
               ? `, ${aggregateFilterAliases
-                  .map((item) => `${item.expr} AS ${quoteIdentifier(item.alias)}`)
+                  .map(
+                    (item) => `${item.expr} AS ${quoteIdentifier(item.alias)}`,
+                  )
                   .join(", ")}`
               : "";
             return `  SELECT ${columnIndex} AS field_order, ${fnIndex} AS aggregate_order, '${escapedField}' AS field, '${escapedAggregate}' AS aggregate, CAST(__value AS VARCHAR) AS value\n  FROM (\n    SELECT ${buildExpression(
@@ -1505,7 +1697,9 @@ FROM (\n${selectStatements.join(
 
       setResultTabs((prev) =>
         prev.map((tab) =>
-          tab.id === "all-columns" ? { ...tab, label, query: nextSql, selection: null } : tab,
+          tab.id === "all-columns"
+            ? { ...tab, label, query: nextSql, selection: null }
+            : tab,
         ),
       );
       setActiveResultTabId("all-columns");
@@ -1583,7 +1777,8 @@ FROM (\n${selectStatements.join(
       }
 
       setSelection((current) => {
-        const source = axis === "row" ? current.rowDimensions : current.columnDimensions;
+        const source =
+          axis === "row" ? current.rowDimensions : current.columnDimensions;
         const lastIndex = source.lastIndexOf(dimensionToRemove);
         if (lastIndex < 0) {
           return current;
@@ -1603,8 +1798,14 @@ FROM (\n${selectStatements.join(
     }
 
     if (type.startsWith("dimfn|")) {
-      const [, axis = "row", fn = "", encodedColumn = "", encodedArg = "", mode = "default"] =
-        type.split("|");
+      const [
+        ,
+        axis = "row",
+        fn = "",
+        encodedColumn = "",
+        encodedArg = "",
+        mode = "default",
+      ] = type.split("|");
       const decode = (value: string): string => {
         try {
           return decodeURIComponent(value);
@@ -1621,7 +1822,8 @@ FROM (\n${selectStatements.join(
         dimension: string,
       ): { fnKeys: string[]; columnName: string; rawArgs: string[] } | null => {
         if (dimension.startsWith("__fn__|")) {
-          const [, fnChain = "", rawColumn = "", rawArg = ""] = dimension.split("|");
+          const [, fnChain = "", rawColumn = "", rawArg = ""] =
+            dimension.split("|");
           const fnKeys = fnChain.split(".").filter(Boolean);
           const decodedArg = decode(rawArg);
 
@@ -1645,7 +1847,9 @@ FROM (\n${selectStatements.join(
             columnName: decode(rawColumn),
             rawArgs: [
               decodedArg,
-              ...new Array<string>(Math.max(0, (fnKeys.length || 1) - 1)).fill(""),
+              ...new Array<string>(Math.max(0, (fnKeys.length || 1) - 1)).fill(
+                "",
+              ),
             ],
           };
         }
@@ -1684,7 +1888,9 @@ FROM (\n${selectStatements.join(
       };
 
       const dimensionToken =
-        fn === "field" ? decodedColumn : `__fn__|${fn}|${encodedColumn}|${encodedArg}`;
+        fn === "field"
+          ? decodedColumn
+          : `__fn__|${fn}|${encodedColumn}|${encodedArg}`;
       const shouldAppend = mode === "append";
       const shouldChain = mode === "chain";
       const shouldToggle = mode === "toggle";
@@ -1697,7 +1903,8 @@ FROM (\n${selectStatements.join(
       };
 
       setSelection((current) => {
-        const source = axis === "row" ? current.rowDimensions : current.columnDimensions;
+        const source =
+          axis === "row" ? current.rowDimensions : current.columnDimensions;
         const update = (next: string[]) =>
           axis === "row"
             ? { ...current, rowDimensions: next }
@@ -1735,9 +1942,11 @@ FROM (\n${selectStatements.join(
             const parsed = parseDerivedDimensionToken(existing);
 
             if (!parsed) {
-              next[lastMatchIndex] = buildDerivedDimensionToken([fn], decodedColumn, [
-                decode(encodedArg),
-              ]);
+              next[lastMatchIndex] = buildDerivedDimensionToken(
+                [fn],
+                decodedColumn,
+                [decode(encodedArg)],
+              );
               return update(next);
             }
 
@@ -1758,7 +1967,9 @@ FROM (\n${selectStatements.join(
 
           return update([
             ...source,
-            buildDerivedDimensionToken([fn], decodedColumn, [decode(encodedArg)]),
+            buildDerivedDimensionToken([fn], decodedColumn, [
+              decode(encodedArg),
+            ]),
           ]);
         }
 
@@ -1768,7 +1979,9 @@ FROM (\n${selectStatements.join(
           next.splice(lastIndex, 1);
           return update(next);
         }
-        const next = source.filter((dimension) => getDimensionColumn(dimension) !== decodedColumn);
+        const next = source.filter(
+          (dimension) => getDimensionColumn(dimension) !== decodedColumn,
+        );
         return update([...next, dimensionToken]);
       });
 
@@ -1806,7 +2019,12 @@ FROM (\n${selectStatements.join(
       setResultTabs((prev) =>
         prev.map((tab) =>
           tab.id === "all-columns"
-            ? { ...tab, label: "Table: Count *", query: null, selection: nextSelection }
+            ? {
+                ...tab,
+                label: "Table: Count *",
+                query: null,
+                selection: nextSelection,
+              }
             : tab,
         ),
       );
@@ -1828,7 +2046,12 @@ FROM (\n${selectStatements.join(
       setResultTabs((prev) =>
         prev.map((tab) =>
           tab.id === "all-columns"
-            ? { ...tab, label: "Table: Count Distinct", query: nextSql, selection: null }
+            ? {
+                ...tab,
+                label: "Table: Count Distinct",
+                query: nextSql,
+                selection: null,
+              }
             : tab,
         ),
       );
@@ -1849,7 +2072,12 @@ FROM (\n${selectStatements.join(
       setResultTabs((prev) =>
         prev.map((tab) =>
           tab.id === "all-columns"
-            ? { ...tab, label: "Table: Preview", query: nextSql, selection: null }
+            ? {
+                ...tab,
+                label: "Table: Preview",
+                query: nextSql,
+                selection: null,
+              }
             : tab,
         ),
       );
@@ -1870,7 +2098,12 @@ FROM (\n${selectStatements.join(
       setResultTabs((prev) =>
         prev.map((tab) =>
           tab.id === "all-columns"
-            ? { ...tab, label: "Table: Row Number", query: nextSql, selection: null }
+            ? {
+                ...tab,
+                label: "Table: Row Number",
+                query: nextSql,
+                selection: null,
+              }
             : tab,
         ),
       );
@@ -1887,7 +2120,9 @@ FROM (\n${selectStatements.join(
 
   const addFilterForColumn = (column: string) => {
     setFilters((current) => {
-      const sourceColumn = datasourceColumns.find((item) => item.name === column);
+      const sourceColumn = datasourceColumns.find(
+        (item) => item.name === column,
+      );
       const aliasOptions = filterAliasOptionsByColumn[column] ?? [];
       const usedAliases = new Set(
         current
@@ -1896,7 +2131,9 @@ FROM (\n${selectStatements.join(
           .filter((value): value is string => Boolean(value)),
       );
       const selectedAlias =
-        aliasOptions.find((alias) => !usedAliases.has(alias)) ?? aliasOptions[0] ?? undefined;
+        aliasOptions.find((alias) => !usedAliases.has(alias)) ??
+        aliasOptions[0] ??
+        undefined;
 
       return [
         ...current,
@@ -1937,20 +2174,29 @@ FROM (\n${selectStatements.join(
   }, [activeResultTab, selection]);
   const activeRowAxisKeys =
     activePivotSelection?.rowDimensions.map((dimension) =>
-      getDimensionDisplayLabel(dimension, activePivotSelection.dimensionAliases),
+      getDimensionDisplayLabel(
+        dimension,
+        activePivotSelection.dimensionAliases,
+      ),
     ) ?? [];
   const activeRowAxisDimensions = activePivotSelection?.rowDimensions ?? [];
   const activeRowSortDirections = activePivotSelection?.rowSortDirections;
   const activeRowSortPriority = activePivotSelection?.rowSortPriority;
-  const activeColumnAxisDimensions = activePivotSelection?.columnDimensions ?? [];
+  const activeColumnAxisDimensions =
+    activePivotSelection?.columnDimensions ?? [];
   const activeColumnSortDirections = activePivotSelection?.columnSortDirections;
   const activeColumnSortPriority = activePivotSelection?.columnSortPriority;
   const activeColumnAxisKeys =
     activePivotSelection?.columnDimensions.map((dimension) =>
-      getDimensionDisplayLabel(dimension, activePivotSelection.dimensionAliases),
+      getDimensionDisplayLabel(
+        dimension,
+        activePivotSelection.dimensionAliases,
+      ),
     ) ?? [];
   const activeResultFilters =
-    activeResultTabId === "main" || activeResultTabId === "all-columns" ? filters : [];
+    activeResultTabId === "main" || activeResultTabId === "all-columns"
+      ? filters
+      : [];
   const buildActivePivotSql = () => {
     if (!activePivotSelection || !datasourceContext?.fromClauseSql) {
       return null;
@@ -1962,7 +2208,10 @@ FROM (\n${selectStatements.join(
     );
   };
 
-  const handlePivotRowHeaderSortChange = (rowDimension: string, direction: "asc" | "desc") => {
+  const handlePivotRowHeaderSortChange = (
+    rowDimension: string,
+    direction: "asc" | "desc",
+  ) => {
     if (!datasourceContext?.fromClauseSql || !activePivotSelection) {
       return;
     }
@@ -1991,7 +2240,9 @@ FROM (\n${selectStatements.join(
     } else {
       setResultTabs((current) =>
         current.map((tab) =>
-          tab.id === activeResultTabId ? { ...tab, selection: nextSelection } : tab,
+          tab.id === activeResultTabId
+            ? { ...tab, selection: nextSelection }
+            : tab,
         ),
       );
     }
@@ -2032,7 +2283,9 @@ FROM (\n${selectStatements.join(
         ...activePivotSelection.columnDimensions.filter(
           (dimension) =>
             dimension !== columnDimension &&
-            !(activePivotSelection.columnSortPriority ?? []).includes(dimension),
+            !(activePivotSelection.columnSortPriority ?? []).includes(
+              dimension,
+            ),
         ),
       ],
     };
@@ -2042,7 +2295,9 @@ FROM (\n${selectStatements.join(
     } else {
       setResultTabs((current) =>
         current.map((tab) =>
-          tab.id === activeResultTabId ? { ...tab, selection: nextSelection } : tab,
+          tab.id === activeResultTabId
+            ? { ...tab, selection: nextSelection }
+            : tab,
         ),
       );
     }
@@ -2070,7 +2325,10 @@ FROM (\n${selectStatements.join(
   const handleShowPivot = () => {
     setResultView("pivot");
     setActiveResultTabId("main");
-    if (!activePivotSelection || activePivotSelection.columnDimensions.length === 0) {
+    if (
+      !activePivotSelection ||
+      activePivotSelection.columnDimensions.length === 0
+    ) {
       return;
     }
     const pivotSql = buildActivePivotSql();
@@ -2135,7 +2393,12 @@ FROM (\n${selectStatements.join(
   );
 
   const displayedRows = useMemo(
-    () => (resultView === "raw" ? (rawResultRows.length ? rawResultRows : lastResult) : lastResult),
+    () =>
+      resultView === "raw"
+        ? rawResultRows.length
+          ? rawResultRows
+          : lastResult
+        : lastResult,
     [resultView, rawResultRows, lastResult],
   );
 
@@ -2154,10 +2417,20 @@ FROM (\n${selectStatements.join(
       );
     }
     if (datasourceContext?.fromClauseSql) {
-      return buildQueryFromSelection(selection, datasourceContext.fromClauseSql, filters);
+      return buildQueryFromSelection(
+        selection,
+        datasourceContext.fromClauseSql,
+        filters,
+      );
     }
     return "";
-  }, [lastQuery, activeResultTab, datasourceContext?.fromClauseSql, selection, filters]);
+  }, [
+    lastQuery,
+    activeResultTab,
+    datasourceContext?.fromClauseSql,
+    selection,
+    filters,
+  ]);
 
   useEffect(() => {
     if (
@@ -2183,7 +2456,10 @@ FROM (\n${selectStatements.join(
               <PanelLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
             <div className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-sm shadow-sm">
-              <Origami className="h-4 w-4 text-yellow-200 bg-black rounded-sm" aria-hidden="true" />
+              <Origami
+                className="h-4 w-4 text-yellow-200 bg-black rounded-sm"
+                aria-hidden="true"
+              />
               Drake - DuckDB React Explorer
             </div>
           </div>
@@ -2246,32 +2522,38 @@ FROM (\n${selectStatements.join(
                   title="Data Sources"
                   open={drawerSections.sources}
                   onToggle={() =>
-                    setDrawerSections((current) => ({ ...current, sources: !current.sources }))
+                    setDrawerSections((current) => ({
+                      ...current,
+                      sources: !current.sources,
+                    }))
                   }
                 >
                   <DataSourcesPanel
                     datasources={filteredDatasources}
                     summary={{
                       total: filteredDatasources.length,
-                      countsByType: filteredDatasources.reduce<Record<string, number>>(
-                        (acc, item) => {
-                          acc[item.type] = (acc[item.type] ?? 0) + 1;
-                          return acc;
-                        },
-                        {},
-                      ),
+                      countsByType: filteredDatasources.reduce<
+                        Record<string, number>
+                      >((acc, item) => {
+                        acc[item.type] = (acc[item.type] ?? 0) + 1;
+                        return acc;
+                      }, {}),
                     }}
                     selectedDatasourceId={selectedDatasourceId}
                     onSelectDatasource={(id) => {
                       setSelectedDatasourceId(id);
-                      setDrawerSections((current) => ({ ...current, sources: false }));
+                      setDrawerSections((current) => ({
+                        ...current,
+                        sources: false,
+                      }));
                     }}
                     onRegisterFile={async (file) => {
                       const name = await registerFile(file);
                       setSelectedDatasourceId(name);
                       if (
                         pendingHistoryItem?.datasourceId &&
-                        pendingHistoryItem.datasourceId.toLowerCase() === name.toLowerCase()
+                        pendingHistoryItem.datasourceId.toLowerCase() ===
+                          name.toLowerCase()
                       ) {
                         const pendingItem = pendingHistoryItem;
                         setPendingHistoryItem(null);
@@ -2307,15 +2589,21 @@ FROM (\n${selectStatements.join(
                     columns={filteredColumns}
                     tableLabel={datasourceContext?.caption}
                     isLoading={isLoadingMetadata}
-                    isMssqlSource={Boolean(selectedDatasourceId.startsWith("mssql:"))}
+                    isMssqlSource={Boolean(
+                      selectedDatasourceId.startsWith("mssql:"),
+                    )}
                     searchQuery={drawerSearch}
                     onAction={handleMeasureAction}
                     selection={selection}
                     filters={filters}
                     onAddFilter={addFilterForColumn}
                     onSelectDimension={(columnName, isCtrl) => {
-                      const column = datasourceColumns.find((item) => item.name === columnName);
-                      const isTextType = /char|varchar|string|text|uuid/i.test(column?.type || "");
+                      const column = datasourceColumns.find(
+                        (item) => item.name === columnName,
+                      );
+                      const isTextType = /char|varchar|string|text|uuid/i.test(
+                        column?.type || "",
+                      );
                       const encodedColumn = encodeURIComponent(columnName);
                       const orderedTokens = [
                         columnName,
@@ -2333,7 +2621,8 @@ FROM (\n${selectStatements.join(
                             ].map((prefix) => {
                               const defaultArg = prefix.includes("split|")
                                 ? " "
-                                : prefix.includes("left|") || prefix.includes("right|")
+                                : prefix.includes("left|") ||
+                                    prefix.includes("right|")
                                   ? "1"
                                   : prefix.includes("string|")
                                     ? "1:10"
@@ -2348,7 +2637,9 @@ FROM (\n${selectStatements.join(
                           source.includes(token),
                         );
                         if (isCtrl) {
-                          const nextToAdd = orderedTokens.find((token) => !source.includes(token));
+                          const nextToAdd = orderedTokens.find(
+                            (token) => !source.includes(token),
+                          );
                           if (!nextToAdd) {
                             return current;
                           }
@@ -2359,7 +2650,8 @@ FROM (\n${selectStatements.join(
                         }
 
                         if (selectedInOrder.length > 0) {
-                          const nextToRemove = selectedInOrder[selectedInOrder.length - 1];
+                          const nextToRemove =
+                            selectedInOrder[selectedInOrder.length - 1];
                           const lastIndex = source.lastIndexOf(nextToRemove);
                           const nextRows = [...source];
                           nextRows.splice(lastIndex, 1);
@@ -2373,8 +2665,12 @@ FROM (\n${selectStatements.join(
                       });
                     }}
                     onSelectColumnDimension={(columnName, isCtrl) => {
-                      const column = datasourceColumns.find((item) => item.name === columnName);
-                      const isTextType = /char|varchar|string|text|uuid/i.test(column?.type || "");
+                      const column = datasourceColumns.find(
+                        (item) => item.name === columnName,
+                      );
+                      const isTextType = /char|varchar|string|text|uuid/i.test(
+                        column?.type || "",
+                      );
                       const encodedColumn = encodeURIComponent(columnName);
                       const orderedTokens = [
                         columnName,
@@ -2392,7 +2688,8 @@ FROM (\n${selectStatements.join(
                             ].map((prefix) => {
                               const defaultArg = prefix.includes("split|")
                                 ? " "
-                                : prefix.includes("left|") || prefix.includes("right|")
+                                : prefix.includes("left|") ||
+                                    prefix.includes("right|")
                                   ? "1"
                                   : prefix.includes("string|")
                                     ? "1:10"
@@ -2407,7 +2704,9 @@ FROM (\n${selectStatements.join(
                           source.includes(token),
                         );
                         if (isCtrl) {
-                          const nextToAdd = orderedTokens.find((token) => !source.includes(token));
+                          const nextToAdd = orderedTokens.find(
+                            (token) => !source.includes(token),
+                          );
                           if (!nextToAdd) {
                             return current;
                           }
@@ -2418,7 +2717,8 @@ FROM (\n${selectStatements.join(
                         }
 
                         if (selectedInOrder.length > 0) {
-                          const nextToRemove = selectedInOrder[selectedInOrder.length - 1];
+                          const nextToRemove =
+                            selectedInOrder[selectedInOrder.length - 1];
                           const lastIndex = source.lastIndexOf(nextToRemove);
                           const nextCols = [...source];
                           nextCols.splice(lastIndex, 1);
@@ -2432,13 +2732,17 @@ FROM (\n${selectStatements.join(
                       });
                     }}
                     onSelectMeasure={(columnName, isCtrl) => {
-                      const column = datasourceColumns.find((item) => item.name === columnName);
+                      const column = datasourceColumns.find(
+                        (item) => item.name === columnName,
+                      );
                       const columnType = column?.type || "";
                       const isNumericType =
                         /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
                           columnType,
                         );
-                      const isTextType = /char|varchar|string|text|uuid/i.test(columnType);
+                      const isTextType = /char|varchar|string|text|uuid/i.test(
+                        columnType,
+                      );
                       const isTemporalType = /date|time/i.test(columnType);
                       const supportsMeasureFn = (fnKey: string): boolean => {
                         if (
@@ -2458,7 +2762,11 @@ FROM (\n${selectStatements.join(
                         ) {
                           return isNumericType || isTextType || isTemporalType;
                         }
-                        if (fnKey === "entropy" || fnKey === "median" || fnKey === "mode") {
+                        if (
+                          fnKey === "entropy" ||
+                          fnKey === "median" ||
+                          fnKey === "mode"
+                        ) {
                           return isNumericType || isTextType || isTemporalType;
                         }
                         if (fnKey === "count" || fnKey === "count_distinct") {
@@ -2504,7 +2812,9 @@ FROM (\n${selectStatements.join(
                               if (parts[1] !== columnName) {
                                 return null;
                               }
-                              return parts[0] === "distinct_count" ? "count_distinct" : parts[0];
+                              return parts[0] === "distinct_count"
+                                ? "count_distinct"
+                                : parts[0];
                             })
                             .filter((m): m is string => Boolean(m)),
                         );
@@ -2520,12 +2830,19 @@ FROM (\n${selectStatements.join(
                           if (current.measures.includes(key)) {
                             return current;
                           }
-                          return { ...current, measures: [...current.measures, key] };
+                          return {
+                            ...current,
+                            measures: [...current.measures, key],
+                          };
                         };
 
                         const removeMeasure = (fnKey: string) => {
                           let lastIndex = -1;
-                          for (let index = current.measures.length - 1; index >= 0; index -= 1) {
+                          for (
+                            let index = current.measures.length - 1;
+                            index >= 0;
+                            index -= 1
+                          ) {
                             const measure = current.measures[index];
                             if (!measure || measure === "count:*") {
                               continue;
@@ -2533,8 +2850,13 @@ FROM (\n${selectStatements.join(
                             const [base] = measure.split("|");
                             const parts = base.split(":");
                             const normalized =
-                              parts[0] === "distinct_count" ? "count_distinct" : parts[0];
-                            if (parts[1] === columnName && normalized === fnKey) {
+                              parts[0] === "distinct_count"
+                                ? "count_distinct"
+                                : parts[0];
+                            if (
+                              parts[1] === columnName &&
+                              normalized === fnKey
+                            ) {
                               lastIndex = index;
                               break;
                             }
@@ -2555,7 +2877,8 @@ FROM (\n${selectStatements.join(
                         }
 
                         if (selectedFnsOrdered.length > 0) {
-                          const nextToRemove = selectedFnsOrdered[selectedFnsOrdered.length - 1];
+                          const nextToRemove =
+                            selectedFnsOrdered[selectedFnsOrdered.length - 1];
                           return removeMeasure(nextToRemove);
                         }
 
@@ -2572,7 +2895,10 @@ FROM (\n${selectStatements.join(
                   title="Filters"
                   open={drawerSections.filters}
                   onToggle={() =>
-                    setDrawerSections((current) => ({ ...current, filters: !current.filters }))
+                    setDrawerSections((current) => ({
+                      ...current,
+                      filters: !current.filters,
+                    }))
                   }
                 >
                   <FiltersPanel
@@ -2584,11 +2910,15 @@ FROM (\n${selectStatements.join(
                     datasourceId={selectedDatasourceId}
                     onAddFilter={addFilterForColumn}
                     onRemoveFilter={(id) =>
-                      setFilters((current) => current.filter((filter) => filter.id !== id))
+                      setFilters((current) =>
+                        current.filter((filter) => filter.id !== id),
+                      )
                     }
                     onUpdateFilter={(updated) =>
                       setFilters((current) =>
-                        current.map((filter) => (filter.id === updated.id ? updated : filter)),
+                        current.map((filter) =>
+                          filter.id === updated.id ? updated : filter,
+                        ),
                       )
                     }
                   />
@@ -2596,8 +2926,8 @@ FROM (\n${selectStatements.join(
 
                 {filteredPresetCount > 0 ? (
                   <p className="px-1 text-[11px] text-muted-foreground">
-                    {filteredPresetCount} preset{filteredPresetCount === 1 ? "" : "s"} match the
-                    search.
+                    {filteredPresetCount} preset
+                    {filteredPresetCount === 1 ? "" : "s"} match the search.
                   </p>
                 ) : null}
               </div>
@@ -2625,7 +2955,9 @@ FROM (\n${selectStatements.join(
             <section className="shrink-0 rounded-2xl border bg-card shadow-sm flex flex-col transition-all">
               <Tabs
                 value={activeMainTab}
-                onValueChange={(value: string) => setActiveMainTab(value as "pivot" | "sql")}
+                onValueChange={(value: string) =>
+                  setActiveMainTab(value as "pivot" | "sql")
+                }
                 className="w-full flex flex-col"
               >
                 <div
@@ -2653,8 +2985,11 @@ FROM (\n${selectStatements.join(
                         <TabsTrigger value="sql" className="h-6 text-xs px-3">
                           SQL Editor
                         </TabsTrigger>
-                        {loadedPresets.length > 0 ? (
-                          <TabsTrigger value="presets" className="h-6 text-xs px-3">
+                        {presets.length > 0 ? (
+                          <TabsTrigger
+                            value="presets"
+                            className="h-6 text-xs px-3"
+                          >
                             Bookmarks
                           </TabsTrigger>
                         ) : null}
@@ -2672,7 +3007,10 @@ FROM (\n${selectStatements.join(
                         disabled={!selectedDatasourceId || !editorSql.trim()}
                         title="Save Bookmark"
                       >
-                        <BookmarkPlus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                        <BookmarkPlus
+                          className="mr-1.5 h-4 w-4"
+                          aria-hidden="true"
+                        />
                         Bookmark
                       </Button>
                       <Button
@@ -2690,11 +3028,15 @@ FROM (\n${selectStatements.join(
                         variant="outline"
                         onClick={() => {
                           setActiveResultTabId("main");
-                          setResultView(shouldKeepPivotOnMainQueryChange ? "pivot" : "raw");
+                          setResultView(
+                            shouldKeepPivotOnMainQueryChange ? "pivot" : "raw",
+                          );
                           void runQueryAndCaptureRaw(sql);
                         }}
                         disabled={
-                          isRunning || !datasourceContext?.fromClauseSql || settings.autoRunQueries
+                          isRunning ||
+                          !datasourceContext?.fromClauseSql ||
+                          settings.autoRunQueries
                         }
                       >
                         {settings.autoRunQueries ? (
@@ -2702,7 +3044,11 @@ FROM (\n${selectStatements.join(
                         ) : (
                           <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
                         )}
-                        {isRunning ? "Running..." : settings.autoRunQueries ? "Auto-run" : "Run"}
+                        {isRunning
+                          ? "Running..."
+                          : settings.autoRunQueries
+                            ? "Auto-run"
+                            : "Run"}
                       </Button>
                     </div>
                   ) : null}
@@ -2752,7 +3098,9 @@ FROM (\n${selectStatements.join(
                             <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                             <Input
                               value={presetQuery}
-                              onChange={(event) => setPresetQuery(event.target.value)}
+                              onChange={(event) =>
+                                setPresetQuery(event.target.value)
+                              }
                               placeholder="Search presets"
                               className="pl-9"
                             />
@@ -2764,34 +3112,62 @@ FROM (\n${selectStatements.join(
                                   No saved presets.
                                 </div>
                               ) : (
-                                filteredPresets.map((preset) => (
-                                  <div
-                                    key={preset.id}
-                                    className="group rounded border bg-background px-3 py-2 text-xs"
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <button
-                                        type="button"
-                                        className="min-w-0 flex-1 text-left"
-                                        onClick={() => handleLoadPreset(preset)}
-                                      >
-                                        <p className="truncate font-medium">{preset.name}</p>
-                                        <p className="truncate text-[11px] text-muted-foreground">
-                                          {preset.datasourceId || "No datasource"} •{" "}
-                                          {new Date(preset.createdAt).toLocaleString()}
-                                        </p>
-                                      </button>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-7 w-7 opacity-0 group-hover:opacity-100"
-                                        onClick={() => handleDeletePreset(preset.id)}
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </Button>
+                                filteredPresets.map((preset) => {
+                                  const isAvailable = datasources.some(
+                                    (item) => item.id === preset.datasourceId,
+                                  );
+                                  return (
+                                    <div
+                                      key={preset.id}
+                                      className={cn(
+                                        "group rounded border px-3 py-2 text-xs transition-colors",
+                                        isAvailable
+                                          ? "bg-background"
+                                          : "bg-muted/40 opacity-70",
+                                      )}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <button
+                                          type="button"
+                                          className="min-w-0 flex-1 text-left"
+                                          onClick={() =>
+                                            handleLoadPreset(preset)
+                                          }
+                                          title={
+                                            isAvailable
+                                              ? undefined
+                                              : "Datasource not loaded — click to restore"
+                                          }
+                                        >
+                                          <p className="truncate font-medium">
+                                            {preset.name}
+                                          </p>
+                                          <p className="truncate text-[11px] text-muted-foreground">
+                                            {preset.datasourceId ||
+                                              "No datasource"}{" "}
+                                            •{" "}
+                                            {new Date(
+                                              preset.createdAt,
+                                            ).toLocaleString()}
+                                            {!isAvailable
+                                              ? " • unavailable"
+                                              : null}
+                                          </p>
+                                        </button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 opacity-0 group-hover:opacity-100"
+                                          onClick={() =>
+                                            handleDeletePreset(preset.id)
+                                          }
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </div>
                                     </div>
-                                  </div>
-                                ))
+                                  );
+                                })
                               )}
                             </div>
                           </ScrollArea>
@@ -2843,7 +3219,10 @@ FROM (\n${selectStatements.join(
         </main>
       </div>
 
-      <SettingsDialog isOpen={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+      <SettingsDialog
+        isOpen={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+      />
       <SecretsDialog isOpen={isSecretsOpen} onOpenChange={setIsSecretsOpen} />
       <ExportResultsDialog
         isOpen={isExportDialogOpen}
