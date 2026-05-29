@@ -4,6 +4,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -165,6 +166,9 @@ export default function FilterValueDialog({
       <DialogContent className="sm:max-w-[425px] flex flex-col max-h-[80vh]">
         <DialogHeader>
           <DialogTitle>Filter: {column.name}</DialogTitle>
+          <DialogDescription>
+            Search and select values for the {column.name} filter.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="relative mb-2">

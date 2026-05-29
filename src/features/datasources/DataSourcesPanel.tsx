@@ -37,6 +37,7 @@ interface DataSourcesPanelProps {
   onAddUrlDatasource?: (input: UrlDataSourceInput) => Promise<DataSourceItem | null>;
   summary?: { total: number; countsByType: Record<string, number> };
   onDeleteDatasource?: (datasourceId: string) => void;
+  fileInputRef?: React.RefObject<HTMLInputElement>;
 }
 
 const DELETE_GRACE_MS = 20_000;
@@ -62,6 +63,7 @@ export default function DataSourcesPanel({
   onAddUrlDatasource,
   summary: summaryProp,
   onDeleteDatasource,
+  fileInputRef,
 }: DataSourcesPanelProps) {
   const {
     datasources: localDatasources,
@@ -234,6 +236,7 @@ export default function DataSourcesPanel({
       }
       onSelectDatasource?.(file.name);
     }
+    e.target.value = "";
   };
 
   const handleAddUrlDatasource = async () => {
@@ -280,7 +283,14 @@ export default function DataSourcesPanel({
             <input
               type="file"
               id="ds-upload"
-              className="hidden"
+              ref={fileInputRef}
+              style={{
+                position: "absolute",
+                width: 0,
+                height: 0,
+                opacity: 0,
+                pointerEvents: "none",
+              }}
               accept=".csv,.parquet,.db"
               onChange={onFileUpload}
             />

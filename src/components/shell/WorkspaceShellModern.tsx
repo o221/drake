@@ -13,6 +13,7 @@ import {
   BookmarkPlus,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useToast } from "@/hooks/use-toast";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ import { DrawerSection } from "@/components/shell/WorkspaceShellDrawerSection";
 import WorkspaceResultsPanel from "@/components/shell/WorkspaceResultsPanel";
 import AttributesPanel from "@/features/attributes/AttributesPanel";
 import DataSourcesPanel from "@/features/datasources/DataSourcesPanel";
+import type { DataSourceItem, UrlDataSourceInput } from "@/features/datasources/dataSourcesAdapter";
 import {
   getDatasourceColumns,
   getDatasourceQueryContext,
@@ -35,9 +37,10 @@ import {
   deriveMeasureAliases,
   getDefaultQuerySelection,
   getDimensionDisplayLabel,
+  reverseParseQueryFromSql,
   type QueryBuilderSelection,
 } from "@/features/query/querySql";
-import SqlEditor, { type QueryPresetItem } from "@/features/query/SqlEditor";
+import SqlEditor, { type QueryPresetItem, type QueryHistoryItem } from "@/features/query/SqlEditor";
 import ExportResultsDialog from "@/features/runtime/ExportResultsDialog";
 import type { QueryRow } from "@/features/runtime/duckdbRuntime";
 import { useDuckDbRuntime } from "@/features/runtime/useDuckDbRuntime";
@@ -182,6 +185,54 @@ interface UrlWorkspaceState {
   resultView: "raw" | "pivot" | "rows";
 }
 
+function parseWebDatasourceId(id: string): UrlDataSourceInput | null {
+  if (!id.startsWith("web:")) {
+    return null;
+  }
+
+  const parts = id.split(":");
+  if (parts.length < 3) {
+    return null;
+  }
+
+  const format = parts[1] as UrlDataSourceInput["format"];
+  const url = parts.slice(2).join(":");
+  if (!["csv", "parquet", "json"].includes(format)) {
+    return null;
+  }
+
+  try {
+    new URL(url);
+  } catch {
+    return null;
+  }
+
+  return { url, format };
+}
+
+function parseMssqlDatasourceId(
+  id: string,
+): { id: string; title: string; origin: string; type: string; status: string } | null {
+  if (!id.startsWith("mssql:")) {
+    return null;
+  }
+
+  const value = id.slice("mssql:".length);
+  const parts = value.split(".");
+  if (parts.length < 3) {
+    return null;
+  }
+
+  const [attachAlias, schema, table] = parts;
+  return {
+    id,
+    title: `${schema}.${table}`,
+    origin: `mssql:${attachAlias}`,
+    type: "Table",
+    status: "ready",
+  };
+}
+
 function getInitialResultTabs(): {
   id: string;
   label: string;
@@ -284,6 +335,9 @@ export default function WorkspaceShellModern() {
     addRemoteTable,
     addUrlDatasource,
   } = useDataSources();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingHistoryItem, setPendingHistoryItem] = useState<QueryHistoryItem | null>(null);
+  const { toast } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [drawerWidth, setDrawerWidth] = useState<number>(384);
   const [drawerSearch, setDrawerSearch] = useState("");
@@ -329,6 +383,7 @@ export default function WorkspaceShellModern() {
   const drawerWidthRef = useRef(drawerWidth);
   const previousDatasourceIdRef = useRef<string>("");
   const isLoadingPresetRef = useRef(false);
+  const isLoadingHistoryRef = useRef(false);
   const hasInitializedUrlStateRef = useRef(false);
   const pendingUrlHydrationRef = useRef(false);
   const lastSerializedUrlStateRef = useRef("");
@@ -454,6 +509,107 @@ export default function WorkspaceShellModern() {
     return rows;
   };
 
+  const extractLocalDatasourceIdFromSql = (sql: string): string | null => {
+    const fileMatch = /read_(csv_auto|parquet|json)\(\s*(['"])([^'"\)]+)\2\s*\)/i.exec(sql);
+    if (fileMatch) {
+      const format = fileMatch[1].toLowerCase() as UrlDataSourceInput["format"];
+      const path = fileMatch[3];
+      try {
+        const url = new URL(path);
+        if (url.protocol === "http:" || url.protocol === "https:") {
+          return `web:${format}:${path}`;
+        }
+      } catch {
+        // not a remote URL, fall back to local file id
+      }
+      return path;
+    }
+
+    const fromMatch = /from\s+(?:read_[a-zA-Z0-9_]*\(|)(['"])([^'"\)]+)\1/i.exec(sql);
+    if (!fromMatch) {
+      return null;
+    }
+
+    const path = fromMatch[2];
+    try {
+      const url = new URL(path);
+      if (url.protocol === "http:" || url.protocol === "https:") {
+        return `web:csv:${path}`;
+      }
+    } catch {
+      // not a remote URL, use local file id
+    }
+
+    return path;
+  };
+
+  const ensureHistoryDatasourceLoaded = async (
+    historyItem: QueryHistoryItem,
+    options?: { openFileDialogIfMissing?: boolean },
+  ): Promise<boolean> => {
+    let datasourceId = historyItem.datasourceId;
+    if (!datasourceId) {
+      const inferred = extractLocalDatasourceIdFromSql(historyItem.sql);
+      if (inferred) {
+        datasourceId = inferred;
+        historyItem = { ...historyItem, datasourceId };
+      }
+    }
+
+    if (!datasourceId) {
+      return true;
+    }
+
+    const context = await getDatasourceQueryContext(datasourceId);
+    if (context) {
+      return true;
+    }
+
+    if (datasourceId.startsWith("web:")) {
+      const parsed = parseWebDatasourceId(datasourceId);
+      if (!parsed) {
+        return false;
+      }
+      const item = await addUrlDatasource(parsed);
+      if (!item) {
+        return false;
+      }
+      setSelectedDatasourceId(item.id);
+      return true;
+    }
+
+    if (datasourceId.startsWith("mssql:")) {
+      const item = parseMssqlDatasourceId(datasourceId);
+      if (!item) {
+        return false;
+      }
+      const ok = await addRemoteTable(item as DataSourceItem);
+      if (!ok) {
+        return false;
+      }
+      setSelectedDatasourceId(datasourceId);
+      return true;
+    }
+
+    // Local file datasource not registered yet.
+    setPendingHistoryItem(historyItem);
+    setDrawerOpen(true);
+    setDrawerSections({ sources: true, attributes: true, filters: true });
+
+    if (options?.openFileDialogIfMissing) {
+      const input = fileInputRef.current ?? document.getElementById("ds-upload");
+      if (input) {
+        input.click?.();
+      }
+    }
+
+    toast({
+      title: "Local file required",
+      description: `Click 'Load Local File' and select ${historyItem.datasourceId} to restore this query history.`,
+    });
+    return false;
+  };
+
   const { settings } = useSettings();
 
   const handleQueryBuilderSelectionChange = (nextSelection: QueryBuilderSelection) => {
@@ -492,12 +648,6 @@ export default function WorkspaceShellModern() {
   }, [datasources, selectedDatasourceId]);
 
   useEffect(() => {
-    if (activeMainTab === "presets" && presets.length === 0) {
-      setActiveMainTab("pivot");
-    }
-  }, [activeMainTab, presets.length]);
-
-  useEffect(() => {
     const hasSelectedDatasource = Boolean(
       selectedDatasourceId && datasources.some((item) => item.id === selectedDatasourceId),
     );
@@ -517,8 +667,9 @@ export default function WorkspaceShellModern() {
       return;
     }
 
-    if (isLoadingPresetRef.current) {
+    if (isLoadingPresetRef.current || isLoadingHistoryRef.current) {
       isLoadingPresetRef.current = false;
+      isLoadingHistoryRef.current = false;
       return;
     }
 
@@ -623,10 +774,10 @@ export default function WorkspaceShellModern() {
     Boolean(datasourceContext?.fromClauseSql);
 
   useEffect(() => {
-    if (activeMainTab === "sql") {
+    if (activeMainTab === "sql" && !editorSqlSeed) {
       setEditorSqlSeed(sql);
     }
-  }, [activeMainTab, sql]);
+  }, [activeMainTab, sql, editorSqlSeed]);
 
   useEffect(() => {
     if (resultView !== "pivot") {
@@ -657,6 +808,9 @@ export default function WorkspaceShellModern() {
   useEffect(() => {
     if (!settings.autoRunQueries) {
       lastAutoRunSql.current = null;
+      return;
+    }
+    if (isLoadingPresetRef.current || isLoadingHistoryRef.current) {
       return;
     }
     if (!sql) return;
@@ -700,6 +854,20 @@ export default function WorkspaceShellModern() {
     setActiveResultTabId("main");
     void runQueryAndCaptureRaw(sql);
   }, [datasourceContext?.fromClauseSql, selectedDatasourceId, sql]);
+
+  useEffect(() => {
+    if (!isLoadingPresetRef.current) {
+      return;
+    }
+    if (!editorSqlSeed) {
+      return;
+    }
+    if (!datasourceContext?.fromClauseSql) {
+      return;
+    }
+
+    isLoadingPresetRef.current = false;
+  }, [editorSqlSeed, datasourceContext?.fromClauseSql]);
 
   const filteredColumns = useMemo(
     () =>
@@ -806,15 +974,26 @@ export default function WorkspaceShellModern() {
     [drawerSearch, presets],
   );
 
+  const loadedPresets = useMemo(
+    () => presets.filter((preset) => datasources.some((item) => item.id === preset.datasourceId)),
+    [datasources, presets],
+  );
+
   const filteredPresets = useMemo(
     () =>
-      presets.filter((preset) =>
+      loadedPresets.filter((preset) =>
         `${preset.name} ${preset.sql} ${preset.datasourceId}`
           .toLowerCase()
           .includes(presetQuery.toLowerCase()),
       ),
-    [presetQuery, presets],
+    [presetQuery, loadedPresets],
   );
+
+  useEffect(() => {
+    if (activeMainTab === "presets" && loadedPresets.length === 0) {
+      setActiveMainTab("pivot");
+    }
+  }, [activeMainTab, loadedPresets.length]);
 
   const processingChip = useMemo(() => {
     if (!selectedDatasourceId) {
@@ -866,15 +1045,11 @@ export default function WorkspaceShellModern() {
     lastSerializedUrlStateRef.current = serialized;
   }, [selectedDatasourceId, selection, filters, limitEnabled, activeMainTab, resultView]);
 
-  const handleSavePreset = (name: string, presetSql: string) => {
+  const handleSavePreset = (bookmark: QueryPresetItem) => {
     const nextPreset: WorkspacePreset = {
-      id: createId(),
-      name,
-      sql: presetSql,
-      datasourceId: selectedDatasourceId,
-      createdAt: new Date().toISOString(),
-      selection,
-      filters,
+      ...bookmark,
+      selection: bookmark.selection ?? selection,
+      filters: bookmark.filters ?? filters,
     };
     setPresets((current) => [nextPreset, ...current]);
   };
@@ -884,24 +1059,163 @@ export default function WorkspaceShellModern() {
     if (!name) {
       return;
     }
-    handleSavePreset(name, editorSql);
+    const nextPreset: WorkspacePreset = {
+      id: createId(),
+      name,
+      sql: editorSql,
+      datasourceId: selectedDatasourceId,
+      createdAt: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
+      selection,
+      filters,
+    };
+    setPresets((current) => [nextPreset, ...current]);
   };
 
   const handleLoadPreset = (preset: QueryPresetItem) => {
-    const typedPreset = preset as WorkspacePreset;
-    isLoadingPresetRef.current = true;
+    void handleLoadHistory({
+      ...preset,
+      timestamp: preset.timestamp ?? preset.createdAt,
+    });
+  };
+
+  const handleLoadHistory = async (
+    historyItem: QueryHistoryItem,
+    options?: { openFileDialogIfMissing?: boolean },
+  ): Promise<boolean> => {
     setDrawerOpen(true);
     setDrawerSections({ sources: true, attributes: true, filters: true });
-    setSelectedDatasourceId(typedPreset.datasourceId);
-    setSelection(typedPreset.selection ?? selection);
-    setFilters(typedPreset.filters ?? []);
-    setEditorSqlSeed(typedPreset.sql);
+    isLoadingPresetRef.current = true;
+    isLoadingHistoryRef.current = true;
+    resetRuntimeState();
+    setRawResultRows([]);
+    setRawResultSql("");
+
+    const inferredDatasourceId =
+      historyItem.datasourceId ??
+      ((): string | null => {
+        const fileMatch = /read_(csv_auto|parquet|json)\(\s*(['"])([^'"\)]+)\2\s*\)/i.exec(
+          historyItem.sql,
+        );
+        if (fileMatch) {
+          const path = fileMatch[3];
+          try {
+            const url = new URL(path);
+            if (url.protocol === "http:" || url.protocol === "https:") {
+              return `web:${fileMatch[1].toLowerCase()}:${path}`;
+            }
+          } catch {
+            // local file path
+          }
+          return path;
+        }
+
+        const fromMatch = /from\s+(?:read_[a-zA-Z0-9_]*\(|)(['"])([^'"\)]+)\1/i.exec(
+          historyItem.sql,
+        );
+        if (!fromMatch) {
+          return null;
+        }
+
+        const path = fromMatch[2];
+        try {
+          const url = new URL(path);
+          if (url.protocol === "http:" || url.protocol === "https:") {
+            return `web:csv:${path}`;
+          }
+        } catch {
+          // local file path
+        }
+        return path;
+      })();
+
+    const historyItemWithDatasourceId = inferredDatasourceId
+      ? { ...historyItem, datasourceId: inferredDatasourceId }
+      : historyItem;
+
+    const datasourceReady = await ensureHistoryDatasourceLoaded(
+      historyItemWithDatasourceId,
+      options,
+    );
+    if (!datasourceReady) {
+      isLoadingPresetRef.current = false;
+      isLoadingHistoryRef.current = false;
+      return false;
+    }
+
+    if (historyItemWithDatasourceId.datasourceId) {
+      setSelectedDatasourceId(historyItemWithDatasourceId.datasourceId);
+    }
+
+    let nextSelection = historyItem.selection;
+    let nextFilters = historyItem.filters;
+
+    if (!nextSelection || !nextFilters) {
+      const parsed = reverseParseQueryFromSql(historyItem.sql);
+      nextSelection = nextSelection ?? parsed.selection;
+      nextFilters = nextFilters ?? parsed.filters;
+    }
+
+    setSelection(nextSelection ?? selection);
+    setFilters(nextFilters ?? []);
+    setEditorSqlSeed(historyItem.sql);
     setActiveMainTab("pivot");
+    setActiveResultTabId("main");
+    setResultView("raw");
+    setPendingHistoryItem(historyItemWithDatasourceId);
+
+    return false;
   };
 
   const handleDeletePreset = (presetId: string) => {
     setPresets((current) => current.filter((preset) => preset.id !== presetId));
   };
+
+  useEffect(() => {
+    if (!pendingHistoryItem) {
+      return;
+    }
+
+    const datasourceId = pendingHistoryItem.datasourceId;
+    if (datasourceId) {
+      if (!selectedDatasourceId) {
+        return;
+      }
+      const selectedMatchesPending =
+        selectedDatasourceId === datasourceId ||
+        selectedDatasourceId.toLowerCase() === datasourceId.toLowerCase();
+      if (!selectedMatchesPending) {
+        return;
+      }
+      if (!datasources.some((item) => item.id === selectedDatasourceId)) {
+        return;
+      }
+      if (!datasourceContext?.fromClauseSql) {
+        return;
+      }
+    }
+
+    const pending = pendingHistoryItem;
+    setPendingHistoryItem(null);
+    (async () => {
+      try {
+        const rows = await runQuery(pending.sql, {
+          datasourceId: pending.datasourceId ?? selectedDatasourceId,
+        });
+        setRawResultRows(rows ?? []);
+        setRawResultSql(pending.sql);
+      } finally {
+        isLoadingPresetRef.current = false;
+        isLoadingHistoryRef.current = false;
+      }
+    })();
+  }, [
+    pendingHistoryItem,
+    selectedDatasourceId,
+    datasources,
+    datasourceContext?.fromClauseSql,
+    runQuery,
+  ]);
 
   const handleClearAll = () => {
     setSelection(getDefaultQuerySelection(queryBuilderModel));
@@ -1953,7 +2267,16 @@ FROM (\n${selectStatements.join(
                       setDrawerSections((current) => ({ ...current, sources: false }));
                     }}
                     onRegisterFile={async (file) => {
-                      await registerFile(file);
+                      const name = await registerFile(file);
+                      setSelectedDatasourceId(name);
+                      if (
+                        pendingHistoryItem?.datasourceId &&
+                        pendingHistoryItem.datasourceId.toLowerCase() === name.toLowerCase()
+                      ) {
+                        const pendingItem = pendingHistoryItem;
+                        setPendingHistoryItem(null);
+                        await handleLoadHistory(pendingItem);
+                      }
                     }}
                     onSearchRemoteTables={searchRemoteTables}
                     onAddRemoteTable={addRemoteTable}
@@ -1964,6 +2287,7 @@ FROM (\n${selectStatements.join(
                         setSelectedDatasourceId("");
                       }
                     }}
+                    fileInputRef={fileInputRef}
                     searchQuery={drawerSearch}
                   />
                 </DrawerSection>
@@ -2329,7 +2653,7 @@ FROM (\n${selectStatements.join(
                         <TabsTrigger value="sql" className="h-6 text-xs px-3">
                           SQL Editor
                         </TabsTrigger>
-                        {presets.length > 0 ? (
+                        {loadedPresets.length > 0 ? (
                           <TabsTrigger value="presets" className="h-6 text-xs px-3">
                             Bookmarks
                           </TabsTrigger>
@@ -2404,6 +2728,9 @@ FROM (\n${selectStatements.join(
                       <div className="flex min-h-0 flex-col">
                         <SqlEditor
                           sql={editorSql}
+                          datasourceId={selectedDatasourceId}
+                          selection={selection}
+                          filters={filters}
                           onRunSql={(customSql) => {
                             setActiveResultTabId("main");
                             setResultView("raw");
@@ -2411,6 +2738,7 @@ FROM (\n${selectStatements.join(
                           }}
                           onSavePreset={handleSavePreset}
                           onLoadPreset={handleLoadPreset}
+                          onLoadHistory={handleLoadHistory}
                           onDeletePreset={handleDeletePreset}
                           presets={presets}
                           lastError={errorMessage}

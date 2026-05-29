@@ -1156,3 +1156,351 @@ export function buildQueryFromSelection(
   if (limit > 0) sql += `LIMIT ${limit};`;
   return sql;
 }
+
+function splitTopLevelCommaSeparated(text: string): string[] {
+  const items: string[] = [];
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let current = "";
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    const prev = i > 0 ? text[i - 1] : "";
+
+    if (char === "'" && !inDouble && prev !== "\\") {
+      inSingle = !inSingle;
+    }
+    if (char === '"' && !inSingle && prev !== "\\") {
+      inDouble = !inDouble;
+    }
+
+    if (!inSingle && !inDouble) {
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        depth = Math.max(depth - 1, 0);
+      } else if (char === "," && depth === 0) {
+        items.push(current.trim());
+        current = "";
+        continue;
+      }
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) {
+    items.push(current.trim());
+  }
+
+  return items;
+}
+
+function parseMeasureExpression(expr: string): string | null {
+  const normalized = expr.trim();
+  const countAll = normalized.match(/^COUNT\s*\(\s*\*\s*\)$/i);
+  if (countAll) {
+    return "count:*";
+  }
+
+  const distinctMatch = normalized.match(/^COUNT\s*\(\s*DISTINCT\s+(?:"[^"]+"\.)?"([^"]+)"\s*\)$/i);
+  if (distinctMatch) {
+    return `count_distinct:${distinctMatch[1]}`;
+  }
+
+  const aggMatch = normalized.match(
+    /^(SUM|AVG|MIN|MAX|COUNT|ENTROPY|GEOMETRIC_MEAN|KURTOSIS|MAD|MEDIAN|MODE|SKEWNESS|STDDEV_SAMP|VAR_SAMP)\s*\(\s*(?:"[^"]+"\.)?"([^"]+)"\s*\)/i,
+  );
+  if (aggMatch) {
+    const aggregator = aggMatch[1].toLowerCase();
+    const column = aggMatch[2];
+    if (aggregator === "count") {
+      return `count:${column}`;
+    }
+    return `${aggregator}:${column}`;
+  }
+
+  return null;
+}
+
+function parseDimensionExpression(expr: string): string | null {
+  const cleaned = expr.trim().replace(/\s+AS\s+["'][^"']+["']$/i, "");
+  const colMatch = cleaned.match(/(?:"[^"]+"\.)?"([^"]+)"$/i);
+  if (colMatch) {
+    return colMatch[1];
+  }
+  const simpleMatch = cleaned.match(/^[A-Za-z_][A-Za-z0-9_]*$/);
+  if (simpleMatch) {
+    return simpleMatch[0];
+  }
+  return null;
+}
+
+function parseConditionToFilter(condition: string, onAggregates: boolean): FilterExpression | null {
+  const normalized = condition.trim();
+
+  const inMatch = normalized.match(/^(?:"[^"]+"\.)?"([^"]+)"\s+IN\s*\(([^)]+)\)$/i);
+  if (inMatch) {
+    const values = inMatch[2]
+      .split(/\s*,\s*/)
+      .map((value) => value.trim().replace(/^['"]|['"]$/g, ""))
+      .filter(Boolean);
+    return {
+      id: crypto.randomUUID(),
+      column: inMatch[1],
+      type: "INCLUDE",
+      values,
+      onAggregates,
+    };
+  }
+
+  const notInMatch = normalized.match(/^(?:"[^"]+"\.)?"([^"]+)"\s+NOT\s+IN\s*\(([^)]+)\)$/i);
+  if (notInMatch) {
+    const values = notInMatch[2]
+      .split(/\s*,\s*/)
+      .map((value) => value.trim().replace(/^['"]|['"]$/g, ""))
+      .filter(Boolean);
+    return {
+      id: crypto.randomUUID(),
+      column: notInMatch[1],
+      type: "EXCLUDE",
+      values,
+      onAggregates,
+    };
+  }
+
+  const cmpMatch = normalized.match(
+    /^(?:"[^"]+"\.)?"([^"]+)"\s*(=|!=|<>|>=|<=|>|<)\s*('([^']*)'|"([^"]*)"|[0-9.\-]+)/i,
+  );
+  if (cmpMatch) {
+    const operator = cmpMatch[2];
+    const value = cmpMatch[4] ?? cmpMatch[5] ?? cmpMatch[3];
+    const typedValue = value.replace(/^['"]|['"]$/g, "");
+    const type: FilterExpression["type"] =
+      operator === "="
+        ? "EQ"
+        : operator === "!=" || operator === "<>"
+          ? "NEQ"
+          : operator === ">"
+            ? "GT"
+            : operator === ">="
+              ? "GTE"
+              : operator === "<"
+                ? "LT"
+                : operator === "<="
+                  ? "LTE"
+                  : "EQ";
+    return {
+      id: crypto.randomUUID(),
+      column: cmpMatch[1],
+      type,
+      values: [typedValue],
+      onAggregates,
+    };
+  }
+
+  const likeMatch = normalized.match(
+    /^(?:"[^"]+"\.)?"([^"]+)"\s+(LIKE|ILIKE)\s*('(?:[^']*)'|"(?:[^"]*)")/i,
+  );
+  if (likeMatch) {
+    const type = likeMatch[2].toUpperCase() === "ILIKE" ? "ILIKE" : "LIKE";
+    const value = likeMatch[3].replace(/^['"]|['"]$/g, "");
+    return {
+      id: crypto.randomUUID(),
+      column: likeMatch[1],
+      type,
+      values: [value.replace(/%/g, "")],
+      onAggregates,
+    };
+  }
+
+  return null;
+}
+
+function extractClause(sql: string, clause: string): string | null {
+  const regex = new RegExp(
+    `${clause}\\s+([\\s\\S]*?)(?:\\bGROUP BY\\b|\\bHAVING\\b|\\bORDER BY\\b|\\bLIMIT\\b|;|$)`,
+    "i",
+  );
+  const match = sql.match(regex);
+  return match ? match[1].trim() : null;
+}
+
+function splitConditions(clause: string): string[] {
+  const conditions: string[] = [];
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let current = "";
+
+  for (let i = 0; i < clause.length; i += 1) {
+    const char = clause[i];
+    const prev = i > 0 ? clause[i - 1] : "";
+
+    if (char === "'" && !inDouble && prev !== "\\") {
+      inSingle = !inSingle;
+    }
+    if (char === '"' && !inSingle && prev !== "\\") {
+      inDouble = !inDouble;
+    }
+
+    if (!inSingle && !inDouble) {
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        depth = Math.max(depth - 1, 0);
+      }
+    }
+
+    if (!inSingle && !inDouble && depth === 0 && clause.slice(i, i + 5).toUpperCase() === " AND ") {
+      conditions.push(current.trim());
+      current = "";
+      i += 4;
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) {
+    conditions.push(current.trim());
+  }
+
+  return conditions;
+}
+
+export function reverseParseQueryFromSql(sql: string): {
+  selection: QueryBuilderSelection;
+  filters: FilterExpression[];
+} {
+  const selection: QueryBuilderSelection = {
+    rowDimensions: [],
+    columnDimensions: [],
+    measures: [],
+    limit: DEFAULT_LIMIT,
+  };
+
+  const cleanedSql = sql
+    .replace(/--.*?(?:\r?\n|$)/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const limitMatch = cleanedSql.match(/\bLIMIT\s+(\d+)/i);
+  if (limitMatch) {
+    selection.limit = Number(limitMatch[1]);
+  }
+
+  const pivotMatch = cleanedSql.match(
+    /WITH\s+__cells\s+AS\s*\(\s*SELECT\s+([\s\S]*?)\s+FROM\s+[\s\S]*?\)\s*PIVOT\s*\(\s*FROM\s+__cells\s*\)/i,
+  );
+  const filters: FilterExpression[] = [];
+
+  if (pivotMatch) {
+    const selectText = pivotMatch[1].trim();
+    const parts = splitTopLevelCommaSeparated(selectText);
+    const dimensions: string[] = [];
+
+    parts.forEach((part) => {
+      const cleanedPart = part.replace(/\s+AS\s+["'][^"']+["']$/i, "").trim();
+      const measure = parseMeasureExpression(cleanedPart);
+      if (measure) {
+        selection.measures.push(measure);
+      } else {
+        const dimension = parseDimensionExpression(cleanedPart);
+        if (dimension) {
+          dimensions.push(dimension);
+        }
+      }
+    });
+
+    const onMatch = cleanedSql.match(/\bON\s*\(\s*([^)]+?)\s*\)/i);
+    const columnDims = onMatch
+      ? onMatch[1]
+          .split(/\s*,\s*/)
+          .map((item) => item.replace(/^["']|["']$/g, "").trim())
+          .filter(Boolean)
+      : [];
+
+    selection.columnDimensions = columnDims;
+    selection.rowDimensions = dimensions.filter((dimension) => !columnDims.includes(dimension));
+
+    const whereMatch = cleanedSql.match(/\bWHERE\s+([\s\S]*?)\s+GROUP BY\b/i);
+    if (whereMatch) {
+      splitConditions(whereMatch[1]).forEach((condition) => {
+        const filter = parseConditionToFilter(condition, false);
+        if (filter) {
+          filters.push(filter);
+        }
+      });
+    }
+
+    const havingMatch = cleanedSql.match(
+      /\bHAVING\s+([\s\S]*?)(?:\s+PIVOT\b|\s+ORDER BY\b|\s+LIMIT\b|$)/i,
+    );
+    if (havingMatch) {
+      splitConditions(havingMatch[1]).forEach((condition) => {
+        const filter = parseConditionToFilter(condition, true);
+        if (filter) {
+          filters.push(filter);
+        }
+      });
+    }
+
+    const usingMatch = cleanedSql.match(/\bUSING\s+([\s\S]*?)(?:\s+ORDER BY\b|\s+LIMIT\b|$)/i);
+    if (usingMatch) {
+      const usingParts = splitTopLevelCommaSeparated(usingMatch[1]);
+      usingParts.forEach((part) => {
+        const expr = part.replace(/\s+AS\s+["'][^"']+["']$/i, "").trim();
+        const innerMatch = expr.match(/FIRST\s*\(\s*([\s\S]+?)\s*\)/i);
+        const measureExpr = innerMatch ? innerMatch[1] : expr;
+        const measure = parseMeasureExpression(measureExpr);
+        if (measure) {
+          selection.measures.push(measure);
+        }
+      });
+    }
+
+    return { selection, filters };
+  }
+
+  const selectMatch = cleanedSql.match(/^SELECT\s+(.*?)\s+FROM\s+/i);
+  if (selectMatch) {
+    const selectText = selectMatch[1];
+    const parts = splitTopLevelCommaSeparated(selectText);
+    parts.forEach((part) => {
+      const cleanedPart = part.replace(/\s+AS\s+["'][^"']+["']$/i, "").trim();
+      const measure = parseMeasureExpression(cleanedPart);
+      if (measure) {
+        selection.measures.push(measure);
+      } else {
+        const dimension = parseDimensionExpression(cleanedPart);
+        if (dimension) {
+          selection.rowDimensions.push(dimension);
+        }
+      }
+    });
+  }
+
+  const whereClause = extractClause(cleanedSql, "WHERE");
+  const havingClause = extractClause(cleanedSql, "HAVING");
+  if (whereClause) {
+    splitConditions(whereClause).forEach((condition) => {
+      const filter = parseConditionToFilter(condition, false);
+      if (filter) {
+        filters.push(filter);
+      }
+    });
+  }
+  if (havingClause) {
+    splitConditions(havingClause).forEach((condition) => {
+      const filter = parseConditionToFilter(condition, true);
+      if (filter) {
+        filters.push(filter);
+      }
+    });
+  }
+
+  return { selection, filters };
+}
