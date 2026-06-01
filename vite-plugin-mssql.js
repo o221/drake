@@ -137,7 +137,8 @@ function sendJson(res, statusCode, data) {
 
 function formatIsoFromMicros(rawMicros) {
   try {
-    const micros = typeof rawMicros === "bigint" ? rawMicros : BigInt(rawMicros);
+    const micros =
+      typeof rawMicros === "bigint" ? rawMicros : BigInt(rawMicros);
     const millis = micros / 1000n;
     const microsRemainder = micros % 1000n;
     const baseIso = new Date(Number(millis)).toISOString();
@@ -293,7 +294,9 @@ export function mssqlPlugin() {
               `SELECT table_name FROM duckdb_tables() ` +
                 `WHERE database_name = '${escapeSqlLiteral(attachAlias)}' ` +
                 `AND schema_name = '${escapeSqlLiteral(schema)}' ` +
-                (query ? `AND lower(table_name) LIKE '%${escapeSqlLiteral(query)}%' ` : "") +
+                (query
+                  ? `AND lower(table_name) LIKE '%${escapeSqlLiteral(query)}%' `
+                  : "") +
                 `ORDER BY table_name LIMIT 100`,
             );
             const rows = reader.getRowObjects();
