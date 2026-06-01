@@ -79,6 +79,37 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function parseMssqlEndpoint(rawHost, rawPort) {
+  let host = rawHost.trim();
+  let portFromHost = null;
+
+  // Support host,port form in MSSQL_HOST.
+  const hostWithPort = host.match(/^(.*?),\s*(\d+)\s*$/);
+  if (hostWithPort) {
+    host = hostWithPort[1].trim();
+    const parsed = Number.parseInt(hostWithPort[2], 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      portFromHost = parsed;
+    }
+  }
+
+  const envPort = Number.parseInt((rawPort ?? "").trim(), 10);
+  if (Number.isFinite(envPort) && envPort > 0) {
+    return { host, port: envPort };
+  }
+
+  if (portFromHost !== null) {
+    return { host, port: portFromHost };
+  }
+
+  // For host\\instance form, let the provider resolve the instance by not forcing a port.
+  if (host.includes("\\")) {
+    return { host, port: null };
+  }
+
+  return { host, port: 1433 };
+}
+
 function parseBody(req) {
   return new Promise((resolve) => {
     let data = "";
@@ -161,10 +192,12 @@ function normalizeJsonValue(value) {
 let dbInitPromise = null;
 
 async function initDb() {
-  const host = readEnv("MSSQL_HOST");
+  const rawHost = readEnv("MSSQL_HOST");
+  const rawPort = readEnv("MSSQL_PORT");
   const database = readEnv("MSSQL_DATABASE");
   const user = readEnv("MSSQL_USER");
   const password = readEnv("MSSQL_PASSWORD");
+  const { host, port } = parseMssqlEndpoint(rawHost, rawPort);
 
   if (!host || !database || !user || !password) {
     throw new Error(
@@ -172,7 +205,6 @@ async function initDb() {
     );
   }
 
-  const port = parseInt(readEnv("MSSQL_PORT") || "1433", 10);
   const schema = readEnv("MSSQL_SCHEMA") || "pbi";
   const attachAlias = readEnv("MSSQL_ATTACH_ALIAS") || "pbi";
 
@@ -184,11 +216,14 @@ async function initDb() {
 
   const schemaFilter = `^(${escapeRegex(schema)})$`;
 
+  const portClause =
+    Number.isFinite(port) && port > 0 ? `  port ${port},\n` : "";
+
   await connection.run(
     `CREATE OR REPLACE SECRET drake_mssql (\n` +
       `  TYPE mssql,\n` +
       `  host '${escapeSqlLiteral(host)}',\n` +
-      `  port ${port},\n` +
+      portClause +
       `  database '${escapeSqlLiteral(database)}',\n` +
       `  user '${escapeSqlLiteral(user)}',\n` +
       `  password '${escapeSqlLiteral(password)}',\n` +
@@ -200,8 +235,10 @@ async function initDb() {
     `ATTACH '' AS ${quoteIdentifier(attachAlias)} (TYPE mssql, SECRET drake_mssql);`,
   );
 
+  const endpointLabel =
+    Number.isFinite(port) && port > 0 ? `${host}:${port}` : host;
   console.info(
-    `[vite-mssql] Connected: ${host}/${database} schema="${schema}" alias="${attachAlias}"`,
+    `[vite-mssql] Connected: ${endpointLabel}/${database} schema="${schema}" alias="${attachAlias}"`,
   );
 
   return { connection, schema, attachAlias };

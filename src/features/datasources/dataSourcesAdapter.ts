@@ -174,7 +174,9 @@ async function loadMssqlDatasources(): Promise<DataSourceItem[]> {
   return mssqlLoadPromise;
 }
 
-export async function searchRemoteTables(query: string): Promise<DataSourceItem[]> {
+export async function searchRemoteTables(
+  query: string,
+): Promise<DataSourceItem[]> {
   const available = await isMssqlServerAvailable();
   if (!available) return [];
 
@@ -215,7 +217,9 @@ export async function addRemoteTable(item: DataSourceItem): Promise<boolean> {
   return true;
 }
 
-export async function addUrlDatasource(input: UrlDataSourceInput): Promise<DataSourceItem | null> {
+export async function addUrlDatasource(
+  input: UrlDataSourceInput,
+): Promise<DataSourceItem | null> {
   const normalizedUrl = input.url.trim();
   if (!normalizedUrl) {
     return null;
@@ -262,7 +266,12 @@ export async function addUrlDatasource(input: UrlDataSourceInput): Promise<DataS
 export async function registerFile(file: File) {
   const runtime = await getDuckDbRuntime();
   const db = runtime.instance;
-  await db.registerFileHandle(file.name, file, 2 /* DuckDB.FileFlags.ReadWrite */, false);
+  await db.registerFileHandle(
+    file.name,
+    file,
+    2 /* DuckDB.FileFlags.ReadWrite */,
+    false,
+  );
   REGISTERED_FILES.add(file.name);
   HIDDEN_DATASOURCES.delete(file.name);
   return file.name;
@@ -275,6 +284,23 @@ export function unregisterFile(filename: string) {
     const removedRemoteFromPersist = PERSISTED_REMOTE_IDS.delete(filename);
     const removedWebFromContext = WEB_CONTEXTS.delete(filename);
     const removedWebFromPersist = PERSISTED_WEB_IDS.delete(filename);
+
+    if (removedLocal) {
+      void (async () => {
+        try {
+          const runtime = await getDuckDbRuntime();
+          if (typeof runtime.instance.unregisterFileHandle === "function") {
+            await runtime.instance.unregisterFileHandle(filename);
+          }
+        } catch (error) {
+          console.error(
+            "Failed to unregister DuckDB file handle",
+            filename,
+            error,
+          );
+        }
+      })();
+    }
 
     if (
       !removedLocal &&
@@ -336,7 +362,9 @@ export async function getAvailableDatasources(): Promise<DataSourceItem[]> {
   ];
 }
 
-export async function getDatasourceColumns(datasourceId: string): Promise<DataSourceColumn[]> {
+export async function getDatasourceColumns(
+  datasourceId: string,
+): Promise<DataSourceColumn[]> {
   // MSSQL: use the server API (DuckDB-Wasm cannot describe remote MSSQL tables)
   if (datasourceId.startsWith("mssql:")) {
     const context = REMOTE_CONTEXTS.get(datasourceId);
@@ -382,14 +410,20 @@ export async function getDatasourceQueryContext(
     return {
       id: datasourceId,
       caption: datasourceId,
-      type: datasourceId.endsWith(".csv") || datasourceId.endsWith(".parquet") ? "File" : "DuckDB",
+      type:
+        datasourceId.endsWith(".csv") || datasourceId.endsWith(".parquet")
+          ? "File"
+          : "DuckDB",
       fromClauseSql: getFileFromClause(datasourceId),
     };
   }
 
   if (datasourceId.startsWith("mssql:")) {
     // If not in REMOTE_CONTEXTS but in PERSISTED, load it
-    if (!REMOTE_CONTEXTS.has(datasourceId) && PERSISTED_REMOTE_IDS.has(datasourceId)) {
+    if (
+      !REMOTE_CONTEXTS.has(datasourceId) &&
+      PERSISTED_REMOTE_IDS.has(datasourceId)
+    ) {
       await loadMssqlDatasources();
     }
     return REMOTE_CONTEXTS.get(datasourceId) ?? null;

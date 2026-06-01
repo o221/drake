@@ -1,7 +1,26 @@
 import { GripHorizontal, X, ArrowRightLeft, CaseSensitive } from "lucide-react";
-import { useState } from "react";
+import { useState, SVGProps } from "react";
 import { cn } from "@/lib/utils";
 
+export function MaterialSymbolsLightPivotTableChart(
+  props: SVGProps<SVGSVGElement>,
+) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="1em"
+      height="1em"
+      viewBox="0 0 24 24"
+      {...props}
+    >
+      {/* Icon from Material Symbols Light by Google - https://github.com/google/material-design-icons/blob/master/LICENSE */}
+      <path
+        fill="currentColor"
+        d="M10.385 7.616V4h8q.69 0 1.153.463T20 5.616v2zM5.615 20q-.69 0-1.152-.462T4 18.384v-8h3.616V20zM4 7.616v-2q0-.691.463-1.153T5.616 4h2v3.616zM12.5 21l-3.308-3.308l3.308-3.307l.708.707l-2.089 2.1h3.573q1.037 0 1.769-.731t.731-1.769v-3.584l-2.1 2.1l-.707-.708l3.307-3.308L21 12.5l-.708.708l-2.1-2.1v3.584q0 1.458-1.02 2.48q-1.022 1.02-2.48 1.02H11.12l2.089 2.1z"
+      />
+    </svg>
+  );
+}
 import {
   setAxisDimension,
   type QueryBuilderSelection,
@@ -104,11 +123,16 @@ function AxisSection({
   const [openIconsFor, setOpenIconsFor] = useState<string | null>(null);
   const [editingAliasKey, setEditingAliasKey] = useState<string | null>(null);
   const [tempAlias, setTempAlias] = useState<string>("");
-  const toggleIcons = (key: string) => setOpenIconsFor((s) => (s === key ? null : key));
+  const toggleIcons = (key: string) =>
+    setOpenIconsFor((s) => (s === key ? null : key));
 
   const parseDropToken = (
     token: string,
-  ): { value: string; sourceAxis?: "row" | "column" | "measure"; sourceIndex?: number } | null => {
+  ): {
+    value: string;
+    sourceAxis?: "row" | "column" | "measure";
+    sourceIndex?: number;
+  } | null => {
     if (token.startsWith("attribute:")) {
       return { value: token.slice("attribute:".length) };
     }
@@ -118,7 +142,8 @@ function AxisSection({
         return {
           value,
           sourceAxis: fromAxis as "row" | "column",
-          sourceIndex: typeof indexStr === "string" ? parseInt(indexStr, 10) : undefined,
+          sourceIndex:
+            typeof indexStr === "string" ? parseInt(indexStr, 10) : undefined,
         };
       }
     }
@@ -131,7 +156,9 @@ function AxisSection({
         value: measureValue,
         sourceAxis: "measure",
         sourceIndex:
-          typeof measureIndexStr === "string" ? parseInt(measureIndexStr, 10) : undefined,
+          typeof measureIndexStr === "string"
+            ? parseInt(measureIndexStr, 10)
+            : undefined,
       };
     }
     return null;
@@ -183,7 +210,9 @@ function AxisSection({
                 const token = event.dataTransfer.getData("text/plain");
                 const parsed = parseDropToken(token);
                 if (!parsed) return;
-                const targetIndex = items.findIndex((candidate) => candidate.key === item.key);
+                const targetIndex = items.findIndex(
+                  (candidate) => candidate.key === item.key,
+                );
                 onDropItem(
                   axis,
                   parsed.value,
@@ -198,7 +227,9 @@ function AxisSection({
                 const defaultAlias = item.label;
                 const savedAlias = dimensionAliases?.[item.value];
                 const chipAlias =
-                  savedAlias && savedAlias.trim().length > 0 ? savedAlias : defaultAlias;
+                  savedAlias && savedAlias.trim().length > 0
+                    ? savedAlias
+                    : defaultAlias;
                 const isEditing = editingAliasKey === item.key;
 
                 return (
@@ -232,7 +263,10 @@ function AxisSection({
                           if (event.key === "Enter") {
                             event.stopPropagation();
                             const nextAlias = tempAlias.trim();
-                            onUpdateAlias(item.value, nextAlias || defaultAlias);
+                            onUpdateAlias(
+                              item.value,
+                              nextAlias || defaultAlias,
+                            );
                             setEditingAliasKey(null);
                           } else if (event.key === "Escape") {
                             event.stopPropagation();
@@ -259,7 +293,9 @@ function AxisSection({
                   }}
                   className={cn(
                     "inline-flex items-center gap-1 rounded border px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-accent transition-opacity",
-                    openIconsFor === item.key ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                    openIconsFor === item.key
+                      ? "opacity-100"
+                      : "opacity-0 group-hover:opacity-100",
                   )}
                   title="Remove"
                 >
@@ -326,13 +362,21 @@ export default function QueryBuilderPanel({
   limitEnabled,
   onToggleLimit,
 }: QueryBuilderPanelProps) {
-  const [editingAliasIndex, setEditingAliasIndex] = useState<number | null>(null);
+  const [editingAliasIndex, setEditingAliasIndex] = useState<number | null>(
+    null,
+  );
   const [tempAlias, setTempAlias] = useState<string>("");
-  const [openMeasureIconsFor, setOpenMeasureIconsFor] = useState<string | null>(null);
+  const [openMeasureIconsFor, setOpenMeasureIconsFor] = useState<string | null>(
+    null,
+  );
 
   const parseDropToken = (
     token: string,
-  ): { value: string; sourceAxis?: "row" | "column" | "measure"; sourceIndex?: number } | null => {
+  ): {
+    value: string;
+    sourceAxis?: "row" | "column" | "measure";
+    sourceIndex?: number;
+  } | null => {
     if (token.startsWith("attribute:")) {
       return { value: token.slice("attribute:".length) };
     }
@@ -342,7 +386,8 @@ export default function QueryBuilderPanel({
         return {
           value,
           sourceAxis: fromAxis as "row" | "column",
-          sourceIndex: typeof indexStr === "string" ? parseInt(indexStr, 10) : undefined,
+          sourceIndex:
+            typeof indexStr === "string" ? parseInt(indexStr, 10) : undefined,
         };
       }
     }
@@ -354,21 +399,26 @@ export default function QueryBuilderPanel({
         value: measureValue,
         sourceAxis: "measure",
         sourceIndex:
-          typeof measureIndexStr === "string" ? parseInt(measureIndexStr, 10) : undefined,
+          typeof measureIndexStr === "string"
+            ? parseInt(measureIndexStr, 10)
+            : undefined,
       };
     }
     return null;
   };
 
   const measureLabel =
-    measureOptions.find((option) => option.value === value.measures?.[0])?.label ??
+    measureOptions.find((option) => option.value === value.measures?.[0])
+      ?.label ??
     value.measures?.[0] ??
     "";
 
   const rowItems = value.rowDimensions.map((dimension, idx) => ({
     key: `row-${idx}-${dimension}`,
     value: dimension,
-    label: stripFieldTypeSuffix(getDimensionDisplayLabel(dimension, value.dimensionAliases)),
+    label: stripFieldTypeSuffix(
+      getDimensionDisplayLabel(dimension, value.dimensionAliases),
+    ),
     index: idx,
   }));
   const columnItems = value.columnDimensions.map((dimension, idx) => ({
@@ -377,8 +427,10 @@ export default function QueryBuilderPanel({
     label: getDimensionDisplayLabel(dimension, value.dimensionAliases),
     index: idx,
   }));
-  const showFlipAxes = value.rowDimensions.length > 0 && value.columnDimensions.length > 0;
-  const showCaseConversion = value.measures.length + rowItems.length + columnItems.length > 0;
+  const showFlipAxes =
+    value.rowDimensions.length > 0 && value.columnDimensions.length > 0;
+  const showCaseConversion =
+    value.measures.length + rowItems.length + columnItems.length > 0;
 
   const updateDimensionAlias = (dimension: string, alias: string) => {
     onChange({
@@ -402,20 +454,26 @@ export default function QueryBuilderPanel({
           ? toCamelCase(sourceAlias)
           : toSentenceCase(sourceAlias);
 
-  const handleConvertAllAliases = (format: "title" | "pascal_snake" | "camel" | "sentence") => {
+  const handleConvertAllAliases = (
+    format: "title" | "pascal_snake" | "camel" | "sentence",
+  ) => {
     const nextDimensionAliases = {
       ...(value.dimensionAliases ?? {}),
     };
 
     [...value.rowDimensions, ...value.columnDimensions].forEach((dimension) => {
-      const sourceAlias = getDimensionDisplayLabel(dimension, value.dimensionAliases);
+      const sourceAlias = getDimensionDisplayLabel(
+        dimension,
+        value.dimensionAliases,
+      );
       nextDimensionAliases[dimension] = convertAlias(sourceAlias, format);
     });
 
     const nextMeasures = value.measures.map((measure) => {
       const parsed = parseMeasureString(measure);
       const fallbackAlias =
-        measureOptions.find((option) => option.value === measure)?.label ?? measure;
+        measureOptions.find((option) => option.value === measure)?.label ??
+        measure;
       const sourceAlias = parsed.alias?.trim() || fallbackAlias;
 
       return formatMeasureString(
@@ -435,13 +493,16 @@ export default function QueryBuilderPanel({
   };
 
   const addToAxis = (axis: "row" | "column", dimension: string) => {
-    const next = axis === "row" ? [...value.rowDimensions] : [...value.columnDimensions];
+    const next =
+      axis === "row" ? [...value.rowDimensions] : [...value.columnDimensions];
     if (next.includes(dimension)) {
       return;
     }
     next.push(dimension);
     onChange(
-      axis === "row" ? { ...value, rowDimensions: next } : { ...value, columnDimensions: next },
+      axis === "row"
+        ? { ...value, rowDimensions: next }
+        : { ...value, columnDimensions: next },
     );
   };
 
@@ -455,7 +516,8 @@ export default function QueryBuilderPanel({
     const nextRows = [...value.rowDimensions];
     const nextColumns = [...value.columnDimensions];
 
-    const explicitSource = sourceAxis === "row" || sourceAxis === "column" ? sourceAxis : undefined;
+    const explicitSource =
+      sourceAxis === "row" || sourceAxis === "column" ? sourceAxis : undefined;
 
     let removedIndex = -1;
     if (explicitSource && typeof sourceIndex === "number") {
@@ -490,7 +552,8 @@ export default function QueryBuilderPanel({
 
     const targetArray = targetAxis === "row" ? nextRows : nextColumns;
 
-    let insertAt = typeof targetIndex === "number" ? targetIndex : targetArray.length;
+    let insertAt =
+      typeof targetIndex === "number" ? targetIndex : targetArray.length;
     if (
       explicitSource === targetAxis &&
       removedIndex !== -1 &&
@@ -538,7 +601,10 @@ export default function QueryBuilderPanel({
             Query Builder
           </h2> */}
           <p className="truncate text-xs text-muted-foreground">
-            Datasource: <span className="font-medium">{datasourceLabel ?? "(none selected)"}</span>
+            Datasource:{" "}
+            <span className="font-medium">
+              {datasourceLabel ?? "(none selected)"}
+            </span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-center">
@@ -549,7 +615,9 @@ export default function QueryBuilderPanel({
                 onClick={() => handleConvertAllAliases("title")}
                 disabled={
                   disabled ||
-                  (value.measures.length === 0 && rowItems.length === 0 && columnItems.length === 0)
+                  (value.measures.length === 0 &&
+                    rowItems.length === 0 &&
+                    columnItems.length === 0)
                 }
                 className="inline-flex items-center justify-center px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                 title="Convert Alias To Title Case"
@@ -613,7 +681,10 @@ export default function QueryBuilderPanel({
               disabled={disabled}
               className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              <MaterialSymbolsLightPivotTableChart
+                className="h-3.5 w-3.5"
+                aria-hidden="true"
+              />
               Flip Axes
             </button>
           ) : null}
@@ -642,7 +713,10 @@ export default function QueryBuilderPanel({
                 value={value.limit}
                 onChange={(event) => {
                   const parsed = Number.parseInt(event.target.value, 10);
-                  onChange({ ...value, limit: Number.isFinite(parsed) ? parsed : 200 });
+                  onChange({
+                    ...value,
+                    limit: Number.isFinite(parsed) ? parsed : 200,
+                  });
                 }}
                 disabled={disabled}
                 className="w-24 rounded-md border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
@@ -689,7 +763,8 @@ export default function QueryBuilderPanel({
 
             if (parsed.sourceAxis === "measure") {
               const next = [...value.measures];
-              const existingIndex = parsed.sourceIndex ?? next.indexOf(parsed.value);
+              const existingIndex =
+                parsed.sourceIndex ?? next.indexOf(parsed.value);
               if (existingIndex !== -1) {
                 const [moved] = next.splice(existingIndex, 1);
                 next.push(moved);
@@ -699,11 +774,16 @@ export default function QueryBuilderPanel({
             }
 
             const col = parsed.value;
-            const preferred = ["sum", "avg", "min", "max"].map((agg) => `${agg}:${col}`);
-            const found = measureOptions.find((opt) => preferred.includes(opt.value));
+            const preferred = ["sum", "avg", "min", "max"].map(
+              (agg) => `${agg}:${col}`,
+            );
+            const found = measureOptions.find((opt) =>
+              preferred.includes(opt.value),
+            );
             const toAdd = found
               ? found.value
-              : (measureOptions.find((opt) => opt.value.endsWith(`:${col}`))?.value ?? "count:*");
+              : (measureOptions.find((opt) => opt.value.endsWith(`:${col}`))
+                  ?.value ?? "count:*");
             if (!value.measures.includes(toAdd)) {
               onChange({ ...value, measures: [...value.measures, toAdd] });
             }
@@ -720,7 +800,8 @@ export default function QueryBuilderPanel({
             value.measures.map((m, idx) => {
               const parsed = parseMeasureString(m);
               const currentAlias = parsed.alias ?? "";
-              const baseLabel = measureOptions.find((o) => o.value === m)?.label ?? m;
+              const baseLabel =
+                measureOptions.find((o) => o.value === m)?.label ?? m;
               const chipLabel = currentAlias || baseLabel;
               const chipKey = `measure-${idx}-${m}`;
 
@@ -729,7 +810,10 @@ export default function QueryBuilderPanel({
                   key={chipKey}
                   draggable
                   onDragStart={(event) => {
-                    event.dataTransfer.setData("text/plain", `measure:${idx}:${m}`);
+                    event.dataTransfer.setData(
+                      "text/plain",
+                      `measure:${idx}:${m}`,
+                    );
                   }}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={(event) => {
@@ -745,7 +829,8 @@ export default function QueryBuilderPanel({
                     let insertPos = idx;
 
                     if (dropped.sourceAxis === "measure") {
-                      const existing = dropped.sourceIndex ?? next.indexOf(dropped.value);
+                      const existing =
+                        dropped.sourceIndex ?? next.indexOf(dropped.value);
                       if (existing !== -1) {
                         next.splice(existing, 1);
                         if (existing < insertPos) {
@@ -758,12 +843,17 @@ export default function QueryBuilderPanel({
                     }
 
                     const col = dropped.value;
-                    const preferred = ["sum", "avg", "min", "max"].map((agg) => `${agg}:${col}`);
-                    const found = measureOptions.find((opt) => preferred.includes(opt.value));
+                    const preferred = ["sum", "avg", "min", "max"].map(
+                      (agg) => `${agg}:${col}`,
+                    );
+                    const found = measureOptions.find((opt) =>
+                      preferred.includes(opt.value),
+                    );
                     const toAdd = found
                       ? found.value
-                      : (measureOptions.find((opt) => opt.value.endsWith(`:${col}`))?.value ??
-                        "count:*");
+                      : (measureOptions.find((opt) =>
+                          opt.value.endsWith(`:${col}`),
+                        )?.value ?? "count:*");
 
                     const existing = next.indexOf(toAdd);
                     if (existing !== -1) {
@@ -781,7 +871,9 @@ export default function QueryBuilderPanel({
                     className="flex items-center gap-2 min-w-0"
                     onClick={(event) => {
                       event.stopPropagation();
-                      setOpenMeasureIconsFor((current) => (current === chipKey ? null : chipKey));
+                      setOpenMeasureIconsFor((current) =>
+                        current === chipKey ? null : chipKey,
+                      );
                     }}
                     onDoubleClick={(event) => {
                       event.stopPropagation();

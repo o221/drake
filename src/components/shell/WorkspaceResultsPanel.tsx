@@ -56,9 +56,13 @@ interface WorkspaceResultsPanelProps {
     columnDimension: string,
     direction: "asc" | "desc",
   ) => void;
+  includeSubtotals?: boolean;
+  onTogglePivotSubtotals?: (next: boolean) => void;
   datasourceFromClauseSql?: string;
   runQueryAndSyncEditor: (nextSql: string) => Promise<QueryRow[] | undefined>;
   lastQuery: string;
+  lazyPreviewHasMore?: boolean;
+  onLoadMorePreview?: () => Promise<void>;
 }
 
 export default function WorkspaceResultsPanel({
@@ -93,11 +97,16 @@ export default function WorkspaceResultsPanel({
   activeColumnSortPriority,
   onPivotRowHeaderSortChange,
   onPivotColumnHeaderSortChange,
+  includeSubtotals,
+  onTogglePivotSubtotals,
   datasourceFromClauseSql,
   runQueryAndSyncEditor,
   lastQuery,
+  lazyPreviewHasMore = false,
+  onLoadMorePreview,
 }: WorkspaceResultsPanelProps) {
   const [isLastQueryCopied, setIsLastQueryCopied] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isLastQueryPopupOpen, setIsLastQueryPopupOpen] = useState(false);
   const lastQueryCopyTimerRef = useRef<number | null>(null);
   const lastQuerySwipeStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -278,6 +287,8 @@ export default function WorkspaceResultsPanel({
             columnSortDirections={activeColumnSortDirections}
             columnSortPriority={activeColumnSortPriority}
             onColumnHeaderSortChange={onPivotColumnHeaderSortChange}
+            includeSubtotals={Boolean(includeSubtotals)}
+            onToggleSubtotals={onTogglePivotSubtotals}
           />
         ) : resultView === "raw" ? (
           <div className="h-full min-h-0 overflow-auto">
@@ -287,10 +298,31 @@ export default function WorkspaceResultsPanel({
           </div>
         ) : (
           <div className="h-full min-h-0 overflow-auto">
-            <ResultsTable rows={lastResult} />
+            <ResultsTable rows={displayedRows} />
           </div>
         )}
       </div>
+
+      {lazyPreviewHasMore ? (
+        <div className="mt-2 flex items-center justify-center">
+          <button
+            type="button"
+            disabled={isLoadingMore}
+            className="inline-flex items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={async () => {
+              if (!onLoadMorePreview) return;
+              setIsLoadingMore(true);
+              try {
+                await onLoadMorePreview();
+              } finally {
+                setIsLoadingMore(false);
+              }
+            }}
+          >
+            {isLoadingMore ? "Loading…" : "Load more rows"}
+          </button>
+        </div>
+      ) : null}
 
       <div ref={lastQueryContainerRef} className="relative mt-2">
         <button

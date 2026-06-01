@@ -40,6 +40,8 @@ interface PivotMatrixProps {
     columnDimension: string,
     direction: "asc" | "desc",
   ) => void;
+  includeSubtotals?: boolean;
+  onToggleSubtotals?: (next: boolean) => void;
 }
 
 function toLabel(value: unknown, missingDisplay: string): string {
@@ -110,6 +112,7 @@ function compareLabels(left: string, right: string): number {
 
 type SortMode = "label-asc" | "label-desc" | "metric-desc" | "metric-asc";
 type SparklineMode = "off" | "bar" | "line";
+type SparklineScope = "row" | "column" | "matrix";
 type MissingDisplayOption = "-" | " " | "null" | "N/A";
 type ActiveSortTarget =
   | { kind: "none" }
@@ -364,6 +367,16 @@ const MISSING_DISPLAY_OPTIONS: MissingDisplayOption[] = [
   "null",
   "N/A",
 ];
+const SPARKLINE_MEASURE_COLORS = [
+  "#0ea5e9",
+  "#f59e0b",
+  "#10b981",
+  "#8b5cf6",
+  "#ef4444",
+  "#14b8a6",
+  "#f97316",
+  "#3b82f6",
+];
 
 function getNextOption<T>(options: readonly T[], value: T): T {
   const index = options.indexOf(value);
@@ -389,6 +402,8 @@ export default function PivotMatrix({
   columnSortDirections,
   columnSortPriority,
   onColumnHeaderSortChange,
+  includeSubtotals = false,
+  onToggleSubtotals,
 }: PivotMatrixProps) {
   const [rowSort, setRowSort] = useState<SortMode>("label-asc");
   const [columnAliasSortDirections, setColumnAliasSortDirections] = useState<
@@ -409,10 +424,14 @@ export default function PivotMatrix({
   const [sparseMode, setSparseMode] = useState(false);
   const [compactNumbers, setCompactNumbers] = useState(false);
   const [decimalPrecision, setDecimalPrecision] = useState<0 | 1 | 2 | 3>(2);
-  const [missingDisplay, setMissingDisplay] = useState("null");
+  const [missingDisplay, setMissingDisplay] =
+    useState<MissingDisplayOption>("-");
   const [freezeRowHeaders, setFreezeRowHeaders] = useState(true);
   const [sparklineMode, setSparklineMode] = useState<SparklineMode>("off");
+  const [sparklineScope, setSparklineScope] = useState<SparklineScope>("row");
+  const [showGridLines, setShowGridLines] = useState(true);
   const rowHeaderCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
+  const rowDividerClass = showGridLines ? "divide-x divide-border" : undefined;
   const freezeHeaderCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
   const freezeBodyCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
   const [rowHeaderLeftOffsets, setRowHeaderLeftOffsets] = useState<number[]>(
@@ -730,11 +749,17 @@ export default function PivotMatrix({
   const showSeparateRowFields = rowAxisKeys.length > 1;
   const rowHeaderTitles = rowAxisKeys.length > 0 ? rowAxisKeys : ["Row Title"];
   const rowHeaderTitle = rowHeaderTitles.join(" / ");
+  const canToggleSubtotals =
+    rowAxisDimensions.length > 1 || columnAxisDimensions.length > 1;
+  const showUiTotals = showTotals;
   const rowHeaderColumnCount = showSeparateRowFields
     ? rowHeaderTitles.length
     : 1;
-  const sparklineColumnCount = sparklineMode !== "off" ? 1 : 0;
-  const totalsColumnCount = showTotals ? 1 : 0;
+  const showRowSparklineColumn =
+    sparklineMode !== "off" &&
+    (sparklineScope === "row" || sparklineScope === "matrix");
+  const sparklineColumnCount = showRowSparklineColumn ? 1 : 0;
+  const totalsColumnCount = showUiTotals ? 1 : 0;
   const totalColumnCount =
     rowHeaderColumnCount +
     sparklineColumnCount +
@@ -902,7 +927,7 @@ export default function PivotMatrix({
     denseMode,
     sortedColumns.length,
     sparklineMode,
-    showTotals,
+    showUiTotals,
   ]);
 
   const parsedColumnHeaders = sortedColumns.map(
@@ -1083,12 +1108,102 @@ export default function PivotMatrix({
     );
   }, [sparklineMode, sortedRows, sortedColumns, pivot]);
 
-  const renderBarSparkline = (values: number[]) => {
+  const columnSparklineSeries = useMemo(() => {
+    if (sparklineMode === "off" || !pivot) {
+      return new Map<string, number[]>();
+    }
+
+    return new Map(
+      sortedColumns.map((columnLabel) => [
+        columnLabel,
+        sortedRows.map(
+          (rowLabel) => pivot.cellMap.get(`${rowLabel}::${columnLabel}`) ?? 0,
+        ),
+      ]),
+    );
+  }, [sparklineMode, sortedColumns, sortedRows, pivot]);
+
+  const matrixSparklineSeries = useMemo(() => {
+    if (sparklineMode === "off" || !pivot) {
+      return { values: [] as number[], columnLabels: [] as string[] };
+    }
+
+    const values: number[] = [];
+    const columnLabels: string[] = [];
+    sortedRows.forEach((rowLabel) => {
+      sortedColumns.forEach((columnLabel) => {
+        values.push(pivot.cellMap.get(`${rowLabel}::${columnLabel}`) ?? 0);
+        columnLabels.push(columnLabel);
+      });
+    });
+
+    return { values, columnLabels };
+  }, [sparklineMode, sortedRows, sortedColumns, pivot]);
+
+  const matrixSparklineDomain = useMemo(() => {
+    const values = matrixSparklineSeries.values;
+    if (!values.length) {
+      return null;
+    }
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const maxAbs = Math.max(...values.map((value) => Math.abs(value)), 0);
+    if (
+      !Number.isFinite(min) ||
+      !Number.isFinite(max) ||
+      !Number.isFinite(maxAbs)
+    ) {
+      return null;
+    }
+    return { min, max, maxAbs };
+  }, [matrixSparklineSeries]);
+
+  const sparklineMeasureLabelByColumn = useMemo(() => {
+    return new Map<string, string>(
+      sortedColumns.map((columnLabel) => [
+        columnLabel,
+        parsedColumnHeaderByLabel.get(columnLabel)?.measureLabel ?? columnLabel,
+      ]),
+    );
+  }, [sortedColumns, parsedColumnHeaderByLabel]);
+
+  const sparklineMeasureColorByLabel = useMemo(() => {
+    const uniqueMeasureLabels: string[] = [];
+    sparklineMeasureLabelByColumn.forEach((measureLabel) => {
+      if (!uniqueMeasureLabels.includes(measureLabel)) {
+        uniqueMeasureLabels.push(measureLabel);
+      }
+    });
+
+    return uniqueMeasureLabels.reduce<Record<string, string>>(
+      (acc, measureLabel, index) => {
+        acc[measureLabel] =
+          SPARKLINE_MEASURE_COLORS[index % SPARKLINE_MEASURE_COLORS.length];
+        return acc;
+      },
+      {},
+    );
+  }, [sparklineMeasureLabelByColumn]);
+
+  const getSparklineColorForColumn = (columnLabel: string): string => {
+    const measureLabel = sparklineMeasureLabelByColumn.get(columnLabel);
+    if (!measureLabel) {
+      return "#0ea5e9";
+    }
+    return sparklineMeasureColorByLabel[measureLabel] ?? "#0ea5e9";
+  };
+
+  const renderBarSparkline = (
+    values: number[],
+    columnLabels: string[],
+    domain?: { maxAbs: number } | null,
+  ) => {
     if (!values.length) {
       return <span className="text-[10px] text-muted-foreground">-</span>;
     }
 
-    const maxAbs = Math.max(...values.map((value) => Math.abs(value)), 0);
+    const maxAbs =
+      domain?.maxAbs ?? Math.max(...values.map((value) => Math.abs(value)), 0);
     if (!Number.isFinite(maxAbs) || maxAbs <= 0) {
       return <span className="text-[10px] text-muted-foreground">-</span>;
     }
@@ -1098,11 +1213,14 @@ export default function PivotMatrix({
         {values.map((value, index) => {
           const ratio = Math.max(0, Math.min(1, Math.abs(value) / maxAbs));
           const height = Math.max(1, Math.round(ratio * 100));
+          const columnLabel = columnLabels[index] ?? "";
+          const measureColor = getSparklineColorForColumn(columnLabel);
           return (
             <div
               key={`bar-spark-${index}`}
-              className={value >= 0 ? "bg-emerald-500/80" : "bg-rose-500/80"}
+              className={value < 0 ? "opacity-70" : undefined}
               style={{
+                backgroundColor: measureColor,
                 height: `${height}%`,
                 width: `${Math.max(2, Math.floor(96 / values.length))}px`,
               }}
@@ -1113,13 +1231,17 @@ export default function PivotMatrix({
     );
   };
 
-  const renderLineSparkline = (values: number[]) => {
+  const renderLineSparkline = (
+    values: number[],
+    columnLabels: string[],
+    domain?: { min: number; max: number } | null,
+  ) => {
     if (!values.length) {
       return <span className="text-[10px] text-muted-foreground">-</span>;
     }
 
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    const min = domain?.min ?? Math.min(...values);
+    const max = domain?.max ?? Math.max(...values);
     const span = max - min;
 
     if (!Number.isFinite(min) || !Number.isFinite(max)) {
@@ -1145,16 +1267,87 @@ export default function PivotMatrix({
         viewBox={`0 0 ${width} ${height}`}
         className="overflow-visible"
       >
-        <polyline
-          points={points}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          className="text-primary"
-        />
+        {values.length > 1
+          ? values.slice(0, -1).map((_, index) => {
+              const x1 = index * step;
+              const x2 = (index + 1) * step;
+              const value1 = values[index];
+              const value2 = values[index + 1];
+              const normalized1 = span === 0 ? 0.5 : (value1 - min) / span;
+              const normalized2 = span === 0 ? 0.5 : (value2 - min) / span;
+              const y1 = height - normalized1 * height;
+              const y2 = height - normalized2 * height;
+              const columnLabel = columnLabels[index + 1] ?? "";
+              return (
+                <line
+                  key={`line-spark-segment-${index}`}
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke={getSparklineColorForColumn(columnLabel)}
+                  strokeWidth="1.5"
+                />
+              );
+            })
+          : null}
+        {points.length
+          ? points.split(" ").map((point, index) => {
+              const [x, y] = point.split(",").map(Number);
+              const columnLabel = columnLabels[index] ?? "";
+              return (
+                <circle
+                  key={`line-spark-point-${index}`}
+                  cx={x}
+                  cy={y}
+                  r="1.25"
+                  fill={getSparklineColorForColumn(columnLabel)}
+                />
+              );
+            })
+          : null}
       </svg>
     );
   };
+
+  const sparklineSummaryRows = useMemo(() => {
+    if (sparklineMode === "off" || sparklineScope !== "column") {
+      return null;
+    }
+    return (
+      <tr className={rowDividerClass}>
+        <th
+          colSpan={rowHeaderColumnCount}
+          className="border-b px-1.5 py-1 text-left font-semibold"
+        >
+          Sparkline by Column
+        </th>
+        {sortedColumns.map((columnLabel) => {
+          const series = columnSparklineSeries.get(columnLabel) ?? [];
+          const labels = new Array(series.length).fill(columnLabel);
+          return (
+            <th
+              key={`column-sparkline-${columnLabel}`}
+              className="border-b px-1.5 py-1 text-left font-normal"
+            >
+              {sparklineMode === "bar"
+                ? renderBarSparkline(series, labels)
+                : renderLineSparkline(series, labels)}
+            </th>
+          );
+        })}
+        {showUiTotals ? <th className="border-b px-1.5 py-1" /> : null}
+      </tr>
+    );
+  }, [
+    sparklineMode,
+    sparklineScope,
+    rowDividerClass,
+    rowHeaderColumnCount,
+    sortedColumns,
+    columnSparklineSeries,
+    showUiTotals,
+  ]);
 
   useLayoutEffect(() => {
     if (!freezeRowHeaders) {
@@ -1284,7 +1477,13 @@ export default function PivotMatrix({
   const bodyRows = (
     <>
       {sortedRows.map((rowLabel, rowIndex) => (
-        <tr key={rowLabel} className="odd:bg-background even:bg-secondary/10">
+        <tr
+          key={rowLabel}
+          className={cn(
+            "odd:bg-background even:bg-secondary/10",
+            rowDividerClass,
+          )}
+        >
           {rowHeaderSpans[rowIndex].map((rowSpan, index) => {
             if (rowSpan <= 0) {
               return null;
@@ -1309,7 +1508,7 @@ export default function PivotMatrix({
               </th>
             );
           })}
-          {sparklineMode !== "off" ? (
+          {showRowSparklineColumn ? (
             <td
               ref={
                 rowIndex === 0 && freezeRowHeaders
@@ -1322,8 +1521,16 @@ export default function PivotMatrix({
               }
             >
               {sparklineMode === "bar"
-                ? renderBarSparkline(rowSparklineSeries.get(rowLabel) ?? [])
-                : renderLineSparkline(rowSparklineSeries.get(rowLabel) ?? [])}
+                ? renderBarSparkline(
+                    rowSparklineSeries.get(rowLabel) ?? [],
+                    sortedColumns,
+                    sparklineScope === "matrix" ? matrixSparklineDomain : null,
+                  )
+                : renderLineSparkline(
+                    rowSparklineSeries.get(rowLabel) ?? [],
+                    sortedColumns,
+                    sparklineScope === "matrix" ? matrixSparklineDomain : null,
+                  )}
             </td>
           ) : null}
           {sortedColumns.map((columnLabel, columnIndex) => {
@@ -1352,7 +1559,7 @@ export default function PivotMatrix({
               </td>
             );
           })}
-          {showTotals ? (
+          {showUiTotals ? (
             <td
               ref={
                 rowIndex === 0 && freezeRowHeaders
@@ -1369,8 +1576,8 @@ export default function PivotMatrix({
           ) : null}
         </tr>
       ))}
-      {showTotals ? (
-        <tr className="bg-secondary/25">
+      {showUiTotals ? (
+        <tr className={cn("bg-secondary/25", rowDividerClass)}>
           <th
             className={
               "border-b font-semibold bg-card" +
@@ -1394,7 +1601,7 @@ export default function PivotMatrix({
                   />
                 ))
             : null}
-          {sparklineMode !== "off" ? (
+          {showRowSparklineColumn ? (
             <th
               className={
                 "border-b font-semibold bg-card" +
@@ -1624,6 +1831,53 @@ export default function PivotMatrix({
             </Button>
           </div>
         </div>
+
+        {sparklineMode !== "off" ? (
+          <div className="inline-flex items-center rounded-md border bg-background p-0.5">
+            <span className="px-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+              Scale
+            </span>
+            <div
+              role="radiogroup"
+              aria-label="Sparkline scale"
+              className="inline-flex items-center rounded-md border"
+            >
+              <Button
+                type="button"
+                size="sm"
+                role="radio"
+                aria-checked={sparklineScope === "row"}
+                variant={sparklineScope === "row" ? "secondary" : "ghost"}
+                className="h-7 rounded-r-none px-2 text-[11px]"
+                onClick={() => setSparklineScope("row")}
+              >
+                By Row
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                role="radio"
+                aria-checked={sparklineScope === "column"}
+                variant={sparklineScope === "column" ? "secondary" : "ghost"}
+                className="h-7 rounded-none px-2 text-[11px]"
+                onClick={() => setSparklineScope("column")}
+              >
+                By Column
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                role="radio"
+                aria-checked={sparklineScope === "matrix"}
+                variant={sparklineScope === "matrix" ? "secondary" : "ghost"}
+                className="h-7 rounded-l-none px-2 text-[11px]"
+                onClick={() => setSparklineScope("matrix")}
+              >
+                By Matrix
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <div className="inline-flex items-center rounded-md border bg-background p-0.5">
           <span className="px-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
             Layout
@@ -1639,6 +1893,23 @@ export default function PivotMatrix({
           >
             Totals
           </Button>
+          {/* <Button
+            type="button"
+            size="sm"
+            variant={includeSubtotals ? "secondary" : "ghost"}
+            className="h-7 px-2 text-[11px]"
+            onClick={() => {
+              onToggleSubtotals?.(!includeSubtotals);
+            }}
+            disabled={!canToggleSubtotals || !onToggleSubtotals}
+            title={
+              canToggleSubtotals
+                ? "Add SQL rollup subtotals"
+                : "Subtotals require at least two row or column groups"
+            }
+          >
+            Subtotals
+          </Button> */}
           <Button
             type="button"
             size="sm"
@@ -1672,6 +1943,17 @@ export default function PivotMatrix({
           >
             Sparse
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={showGridLines ? "secondary" : "ghost"}
+            className="h-7 px-2 text-[11px]"
+            onClick={() => {
+              setShowGridLines((current) => !current);
+            }}
+          >
+            Grid lines
+          </Button>
         </div>
       </div>
 
@@ -1687,7 +1969,10 @@ export default function PivotMatrix({
                 <thead>
                   {showColumnHeaderRows
                     ? columnAxisKeys.map((columnKey, columnLevelIndex) => (
-                        <tr key={`column-axis-row-${columnKey}`}>
+                        <tr
+                          key={`column-axis-row-${columnKey}`}
+                          className={rowDividerClass}
+                        >
                           <th
                             colSpan={rowHeaderColumnCount}
                             className="border-b px-1.5 py-1 font-semibold text-right align-top bg-card z-30 cursor-pointer select-none"
@@ -1699,7 +1984,7 @@ export default function PivotMatrix({
                           >
                             {columnKey + getColumnAliasSortIndicator(columnKey)}
                           </th>
-                          {sparklineMode !== "off" ? (
+                          {showRowSparklineColumn ? (
                             <th className="border-b px-1.5 py-1 text-left font-semibold" />
                           ) : null}
                           {sortedColumns.map((_, columnIndex) => {
@@ -1723,13 +2008,13 @@ export default function PivotMatrix({
                               </th>
                             );
                           })}
-                          {showTotals ? (
+                          {showUiTotals ? (
                             <th className="border-b px-1.5 py-1 text-right font-semibold" />
                           ) : null}
                         </tr>
                       ))
                     : null}
-                  <tr>
+                  <tr className={rowDividerClass}>
                     <th
                       ref={(element) => {
                         setRowHeaderRef(0)(element);
@@ -1761,7 +2046,7 @@ export default function PivotMatrix({
                           </th>
                         ))
                       : null}
-                    {sparklineMode !== "off" ? (
+                    {showRowSparklineColumn ? (
                       <th
                         ref={setFreezeHeaderCellRef(rowHeaderColumnCount)}
                         className="border-b px-1.5 py-1 text-left font-semibold"
@@ -1808,7 +2093,7 @@ export default function PivotMatrix({
                         </th>
                       );
                     })}
-                    {showTotals ? (
+                    {showUiTotals ? (
                       <th
                         ref={setFreezeHeaderCellRef(totalColumnCount - 1)}
                         className="border-b px-1.5 py-1 text-right font-semibold cursor-pointer select-none"
@@ -1822,6 +2107,7 @@ export default function PivotMatrix({
                       </th>
                     ) : null}
                   </tr>
+                  {sparklineSummaryRows}
                 </thead>
               </table>
             </div>
@@ -1846,7 +2132,10 @@ export default function PivotMatrix({
             <thead className="bg-secondary/40">
               {showColumnHeaderRows
                 ? columnAxisKeys.map((columnKey, columnLevelIndex) => (
-                    <tr key={`column-axis-row-${columnKey}`}>
+                    <tr
+                      key={`column-axis-row-${columnKey}`}
+                      className={rowDividerClass}
+                    >
                       <th
                         colSpan={rowHeaderColumnCount}
                         className="border-b px-1.5 py-1 font-semibold text-right align-top cursor-pointer select-none"
@@ -1855,7 +2144,7 @@ export default function PivotMatrix({
                       >
                         {columnKey + getColumnAliasSortIndicator(columnKey)}
                       </th>
-                      {sparklineMode !== "off" ? (
+                      {showRowSparklineColumn ? (
                         <th className="border-b px-1.5 py-1 text-left font-semibold" />
                       ) : null}
                       {sortedColumns.map((_, columnIndex) => {
@@ -1877,13 +2166,13 @@ export default function PivotMatrix({
                           </th>
                         );
                       })}
-                      {showTotals ? (
+                      {showUiTotals ? (
                         <th className="border-b px-1.5 py-1 text-right font-semibold" />
                       ) : null}
                     </tr>
                   ))
                 : null}
-              <tr>
+              <tr className={rowDividerClass}>
                 <th
                   ref={setRowHeaderRef(0)}
                   className="border-b px-1.5 py-1 font-semibold cursor-pointer select-none"
@@ -1907,7 +2196,7 @@ export default function PivotMatrix({
                       </th>
                     ))
                   : null}
-                {sparklineMode !== "off" ? (
+                {showRowSparklineColumn ? (
                   <th className="border-b px-1.5 py-1 text-left font-semibold">
                     Sparkline
                   </th>
@@ -1940,7 +2229,7 @@ export default function PivotMatrix({
                     </th>
                   );
                 })}
-                {showTotals ? (
+                {showUiTotals ? (
                   <th
                     className="border-b px-1.5 py-1 text-right font-semibold cursor-pointer select-none"
                     onClick={toggleRowMetricSort}
@@ -1953,6 +2242,7 @@ export default function PivotMatrix({
                   </th>
                 ) : null}
               </tr>
+              {sparklineSummaryRows}
             </thead>
             <tbody>{bodyRows}</tbody>
           </table>

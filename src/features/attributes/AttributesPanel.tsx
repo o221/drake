@@ -32,7 +32,12 @@ interface AttributesPanelProps {
   onAction?: (action: string) => void;
 }
 
-type DimensionFunctionArgKind = "char" | "number" | "range" | "format" | "age_part";
+type DimensionFunctionArgKind =
+  | "char"
+  | "number"
+  | "range"
+  | "format"
+  | "age_part";
 
 type DimensionFunctionItem = {
   key: string;
@@ -43,7 +48,8 @@ type DimensionFunctionItem = {
 
 function getIconForType(type: string) {
   const t = type?.toLowerCase?.() ?? "";
-  const baseCls = "inline-flex items-center justify-center rounded px-1 text-[11px] h-5 w-5";
+  const baseCls =
+    "inline-flex items-center justify-center rounded px-1 text-[11px] h-5 w-5";
   if (
     t.includes("int") ||
     t.includes("double") ||
@@ -85,25 +91,34 @@ export default function AttributesPanel({
   onAction,
 }: AttributesPanelProps) {
   const [ctrlPressed, setCtrlPressed] = useState(false);
-  const [expandedMeasureColumn, setExpandedMeasureColumn] = useState<string | null>(null);
+  const [expandedMeasureColumn, setExpandedMeasureColumn] = useState<
+    string | null
+  >(null);
   const [showTableStatsPanel, setShowTableStatsPanel] = useState(false);
   const [activeTableStatFns, setActiveTableStatFns] = useState<string[]>([]);
-  const [activeFunctionTab, setActiveFunctionTab] = useState<"row" | "column" | "aggregate">(
-    "aggregate",
-  );
-  const [rowFunctionArgs, setRowFunctionArgs] = useState<Record<string, string>>({});
-  const [columnFunctionArgs, setColumnFunctionArgs] = useState<Record<string, string>>({});
-  const [rowFunctionChainEnabled, setRowFunctionChainEnabled] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [activeFunctionTab, setActiveFunctionTab] = useState<
+    "row" | "column" | "aggregate"
+  >("aggregate");
+  const [rowFunctionArgs, setRowFunctionArgs] = useState<
+    Record<string, string>
+  >({});
+  const [columnFunctionArgs, setColumnFunctionArgs] = useState<
+    Record<string, string>
+  >({});
+  const [rowFunctionChainEnabled, setRowFunctionChainEnabled] = useState<
+    Record<string, boolean>
+  >({});
   const [columnFunctionChainEnabled, setColumnFunctionChainEnabled] = useState<
     Record<string, boolean>
   >({});
 
   const isNumericType = (type: string): boolean =>
-    /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(type || "");
+    /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
+      type || "",
+    );
 
-  const isTextType = (type: string): boolean => /char|varchar|string|text|uuid/i.test(type || "");
+  const isTextType = (type: string): boolean =>
+    /char|varchar|string|text|uuid/i.test(type || "");
 
   const measureItemsByCategory: Record<
     "summary" | "statistics" | "list_aggregators",
@@ -156,7 +171,12 @@ export default function AttributesPanel({
   ];
 
   const dateFunctionItems: DimensionFunctionItem[] = [
-    { key: "date_format", label: "Format", defaultArg: "YY-MM-DD", argKind: "format" },
+    {
+      key: "date_format",
+      label: "Format",
+      defaultArg: "YY-MM-DD",
+      argKind: "format",
+    },
     { key: "extract_year", label: "Year" },
     { key: "extract_quarter", label: "Quarter" },
     { key: "extract_month", label: "Month" },
@@ -178,7 +198,8 @@ export default function AttributesPanel({
     ...dateFunctionItems,
   ];
 
-  const getFunctionArgKey = (columnName: string, fnKey: string): string => `${columnName}|${fnKey}`;
+  const getFunctionArgKey = (columnName: string, fnKey: string): string =>
+    `${columnName}|${fnKey}`;
 
   const getFunctionArgValue = (
     axis: "row" | "column",
@@ -204,8 +225,12 @@ export default function AttributesPanel({
   const formatFieldOptionLabel = (columnName: string): string =>
     columnName.length > 10 ? `${columnName.slice(0, 10)}...` : columnName;
 
-  const getFunctionChainEnabled = (axis: "row" | "column", columnName: string): boolean => {
-    const source = axis === "row" ? rowFunctionChainEnabled : columnFunctionChainEnabled;
+  const getFunctionChainEnabled = (
+    axis: "row" | "column",
+    columnName: string,
+  ): boolean => {
+    const source =
+      axis === "row" ? rowFunctionChainEnabled : columnFunctionChainEnabled;
     return source[columnName] ?? false;
   };
 
@@ -214,7 +239,10 @@ export default function AttributesPanel({
     columnName: string,
     enabled: boolean,
   ) => {
-    const setter = axis === "row" ? setRowFunctionChainEnabled : setColumnFunctionChainEnabled;
+    const setter =
+      axis === "row"
+        ? setRowFunctionChainEnabled
+        : setColumnFunctionChainEnabled;
     setter((current) => ({ ...current, [columnName]: enabled }));
   };
 
@@ -251,11 +279,19 @@ export default function AttributesPanel({
         }
         const parsed = JSON.parse(decoded) as unknown;
         if (Array.isArray(parsed)) {
-          return new Array<string>(fnCount).fill("").map((_, index) => String(parsed[index] ?? ""));
+          return new Array<string>(fnCount)
+            .fill("")
+            .map((_, index) => String(parsed[index] ?? ""));
         }
-        return [decoded, ...new Array<string>(Math.max(0, fnCount - 1)).fill("")];
+        return [
+          decoded,
+          ...new Array<string>(Math.max(0, fnCount - 1)).fill(""),
+        ];
       } catch {
-        return [decodeArg(encodedArg), ...new Array<string>(Math.max(0, fnCount - 1)).fill("")];
+        return [
+          decodeArg(encodedArg),
+          ...new Array<string>(Math.max(0, fnCount - 1)).fill(""),
+        ];
       }
     }
 
@@ -334,7 +370,8 @@ export default function AttributesPanel({
     return columns.filter((c) => c.name.toLowerCase().includes(q));
   }, [columns, searchQuery]);
 
-  const isTemporalType = (type: string): boolean => /date|time/i.test(type || "");
+  const isTemporalType = (type: string): boolean =>
+    /date|time/i.test(type || "");
 
   const supportsMeasureFn = (type: string, fnKey: string): boolean => {
     if (
@@ -347,7 +384,11 @@ export default function AttributesPanel({
     ) {
       return isNumericType(type);
     }
-    if (fnKey === "histogram" || fnKey === "list" || fnKey === "unique_values") {
+    if (
+      fnKey === "histogram" ||
+      fnKey === "list" ||
+      fnKey === "unique_values"
+    ) {
       return isNumericType(type) || isTextType(type) || isTemporalType(type);
     }
     if (fnKey === "entropy" || fnKey === "median" || fnKey === "mode") {
@@ -383,14 +424,19 @@ export default function AttributesPanel({
   };
 
   const getMeasureFnLabel = (fnKey: string): string => {
-    const found = allMeasureItems.find((item) => normalizeMeasureFn(item.key) === fnKey);
+    const found = allMeasureItems.find(
+      (item) => normalizeMeasureFn(item.key) === fnKey,
+    );
     if (found) {
       return found.label;
     }
     return fnKey;
   };
 
-  const getMeasureAggregatorForColumn = (measure: string, columnName: string): string | null => {
+  const getMeasureAggregatorForColumn = (
+    measure: string,
+    columnName: string,
+  ): string | null => {
     if (!measure || measure === "count:*") {
       return null;
     }
@@ -429,7 +475,10 @@ export default function AttributesPanel({
     return null;
   };
 
-  const isDimensionForColumn = (dimension: string, columnName: string): boolean => {
+  const isDimensionForColumn = (
+    dimension: string,
+    columnName: string,
+  ): boolean => {
     if (dimension === columnName) {
       return true;
     }
@@ -441,7 +490,8 @@ export default function AttributesPanel({
     <div className="flex flex-col h-full min-h-0 w-full">
       <div className="mb-3 flex items-center justify-between px-1">
         <span className="text-[10px] text-muted-foreground font-mono">
-          {columns.length} items. Click column to add to query or use quick action icons.
+          {columns.length} items. Click column to add to query or use quick
+          action icons.
         </span>
       </div>
 
@@ -513,7 +563,9 @@ export default function AttributesPanel({
                 <div className="mt-2 flex flex-wrap gap-1">
                   {(() => {
                     const categoryItems = allMeasureItems.filter((item) =>
-                      filteredColumns.some((col) => supportsMeasureFn(col.type, item.key)),
+                      filteredColumns.some((col) =>
+                        supportsMeasureFn(col.type, item.key),
+                      ),
                     );
 
                     if (!categoryItems.length) {
@@ -526,8 +578,11 @@ export default function AttributesPanel({
 
                     return categoryItems.map((item) => {
                       const normalizedKey =
-                        item.key === "distinct_count" ? "count_distinct" : item.key;
-                      const isActive = activeTableStatFns.includes(normalizedKey);
+                        item.key === "distinct_count"
+                          ? "count_distinct"
+                          : item.key;
+                      const isActive =
+                        activeTableStatFns.includes(normalizedKey);
                       return (
                         <button
                           key={`table-stats-${item.key}`}
@@ -540,9 +595,12 @@ export default function AttributesPanel({
                           )}
                           onClick={(event) => {
                             event.stopPropagation();
-                            const isAlreadySelected = activeTableStatFns.includes(normalizedKey);
+                            const isAlreadySelected =
+                              activeTableStatFns.includes(normalizedKey);
                             const next = isAlreadySelected
-                              ? activeTableStatFns.filter((value) => value !== normalizedKey)
+                              ? activeTableStatFns.filter(
+                                  (value) => value !== normalizedKey,
+                                )
                               : [...activeTableStatFns, normalizedKey];
                             setActiveTableStatFns(next);
                             onAction?.(`tablemeasurefn|${next.join(",")}`);
@@ -567,19 +625,25 @@ export default function AttributesPanel({
             <div className="mt-2 flex flex-col gap-2">
               {filteredColumns.map((col) => {
                 const rowCount =
-                  selection?.rowDimensions?.filter((x) => isDimensionForColumn(x, col.name))
-                    .length || 0;
+                  selection?.rowDimensions?.filter((x) =>
+                    isDimensionForColumn(x, col.name),
+                  ).length || 0;
                 const colCount =
-                  selection?.columnDimensions?.filter((x) => isDimensionForColumn(x, col.name))
-                    .length || 0;
+                  selection?.columnDimensions?.filter((x) =>
+                    isDimensionForColumn(x, col.name),
+                  ).length || 0;
                 const measureCount =
                   selection?.measures?.filter((m: string) => {
                     return getMeasureAggregatorForColumn(m, col.name) !== null;
                   }).length || 0;
-                const filterCount = filters?.filter((f) => f.column === col.name).length || 0;
+                const filterCount =
+                  filters?.filter((f) => f.column === col.name).length || 0;
                 const selectedFunctionCounts = new Map<string, number>();
                 (selection?.measures ?? []).forEach((measure) => {
-                  const aggregator = getMeasureAggregatorForColumn(measure, col.name);
+                  const aggregator = getMeasureAggregatorForColumn(
+                    measure,
+                    col.name,
+                  );
                   if (!aggregator) {
                     return;
                   }
@@ -590,31 +654,46 @@ export default function AttributesPanel({
                 });
 
                 const isAnyUsed =
-                  rowCount > 0 || colCount > 0 || measureCount > 0 || filterCount > 0;
+                  rowCount > 0 ||
+                  colCount > 0 ||
+                  measureCount > 0 ||
+                  filterCount > 0;
 
                 const getVisClass = (count: number) => {
                   if (count > 0) return "opacity-100 bg-accent";
                   return "opacity-0 group-hover:opacity-100";
                 };
 
-                const getTooltip = (name: string, count: number, isFilter: boolean) => {
+                const getTooltip = (
+                  name: string,
+                  count: number,
+                  isFilter: boolean,
+                ) => {
                   if (count > 0) {
                     if (isFilter) return "Remove filter";
-                    return ctrlPressed ? "Add" : count > 1 ? "Remove Last" : "Remove";
+                    return ctrlPressed
+                      ? "Add"
+                      : count > 1
+                        ? "Remove Last"
+                        : "Remove";
                   }
                   return `Add as ${name}`;
                 };
 
                 const orderedMeasureFns = getOrderedMeasureFnsForType(col.type);
-                const activeMeasureFnSet = new Set(selectedFunctionCounts.keys());
-                const selectedMeasureFnsOrdered = orderedMeasureFns.filter((fnKey) =>
-                  activeMeasureFnSet.has(fnKey),
+                const activeMeasureFnSet = new Set(
+                  selectedFunctionCounts.keys(),
+                );
+                const selectedMeasureFnsOrdered = orderedMeasureFns.filter(
+                  (fnKey) => activeMeasureFnSet.has(fnKey),
                 );
                 const nextMeasureToAdd = orderedMeasureFns.find(
                   (fnKey) => !activeMeasureFnSet.has(fnKey),
                 );
                 const nextMeasureToRemove =
-                  selectedMeasureFnsOrdered[selectedMeasureFnsOrdered.length - 1];
+                  selectedMeasureFnsOrdered[
+                    selectedMeasureFnsOrdered.length - 1
+                  ];
 
                 const getMeasureTooltip = () => {
                   if (ctrlPressed) {
@@ -662,11 +741,16 @@ export default function AttributesPanel({
                     <div
                       draggable
                       onDragStart={(event) =>
-                        event.dataTransfer.setData("text/plain", `attribute:${col.name}`)
+                        event.dataTransfer.setData(
+                          "text/plain",
+                          `attribute:${col.name}`,
+                        )
                       }
                       className={cn(
                         "group relative flex items-center gap-2 rounded-md border bg-background px-2 py-1 text-xs cursor-grab transition-all duration-150 ease-out w-full",
-                        isAnyUsed ? "pr-[6.5rem]" : "pr-2 group-hover:pr-[6.5rem]",
+                        isAnyUsed
+                          ? "pr-[6.5rem]"
+                          : "pr-2 group-hover:pr-[6.5rem]",
                       )}
                       onClick={() => {
                         onColumnClick?.(col);
@@ -766,19 +850,30 @@ export default function AttributesPanel({
                         <Tabs
                           value={activeFunctionTab}
                           onValueChange={(value) =>
-                            setActiveFunctionTab(value as "row" | "column" | "aggregate")
+                            setActiveFunctionTab(
+                              value as "row" | "column" | "aggregate",
+                            )
                           }
                         >
                           <TabsList className="mt-2 h-8 w-fit">
-                            <TabsTrigger value="row" className="h-6 px-3 text-[11px]">
+                            <TabsTrigger
+                              value="row"
+                              className="h-6 px-3 text-[11px]"
+                            >
                               <Rows3 className="mr-1 h-3 w-3" />
                               ROWS
                             </TabsTrigger>
-                            <TabsTrigger value="column" className="h-6 px-3 text-[11px]">
+                            <TabsTrigger
+                              value="column"
+                              className="h-6 px-3 text-[11px]"
+                            >
                               <Columns3 className="mr-1 h-3 w-3" />
                               COLUMNS
                             </TabsTrigger>
-                            <TabsTrigger value="aggregate" className="h-6 px-3 text-[11px]">
+                            <TabsTrigger
+                              value="aggregate"
+                              className="h-6 px-3 text-[11px]"
+                            >
                               <Sigma className="mr-1 h-3 w-3" />
                               MEASURES
                             </TabsTrigger>
@@ -791,9 +886,12 @@ export default function AttributesPanel({
                               {categoryItems.length ? (
                                 categoryItems.map((item) => {
                                   const normalizedKey =
-                                    item.key === "distinct_count" ? "count_distinct" : item.key;
+                                    item.key === "distinct_count"
+                                      ? "count_distinct"
+                                      : item.key;
                                   const selectedCount =
-                                    selectedFunctionCounts.get(normalizedKey) ?? 0;
+                                    selectedFunctionCounts.get(normalizedKey) ??
+                                    0;
                                   return (
                                     <button
                                       key={item.key}
@@ -834,7 +932,10 @@ export default function AttributesPanel({
                                 <label className="inline-flex items-center gap-2">
                                   <input
                                     type="checkbox"
-                                    checked={getFunctionChainEnabled(activeFunctionTab, col.name)}
+                                    checked={getFunctionChainEnabled(
+                                      activeFunctionTab,
+                                      col.name,
+                                    )}
                                     onChange={(event) => {
                                       event.stopPropagation();
                                       setFunctionChainEnabled(
@@ -858,11 +959,14 @@ export default function AttributesPanel({
                                   axis === "row"
                                     ? (selection?.rowDimensions ?? [])
                                     : (selection?.columnDimensions ?? []);
-                                const selectedDerivedDimensions = axisDimensions.filter(
-                                  (dimension) =>
-                                    getDerivedDimensionColumn(dimension) === col.name &&
-                                    getDerivedDimensionFns(dimension).length > 0,
-                                );
+                                const selectedDerivedDimensions =
+                                  axisDimensions.filter(
+                                    (dimension) =>
+                                      getDerivedDimensionColumn(dimension) ===
+                                        col.name &&
+                                      getDerivedDimensionFns(dimension).length >
+                                        0,
+                                  );
 
                                 if (!selectedDerivedDimensions.length) {
                                   return null;
@@ -870,21 +974,25 @@ export default function AttributesPanel({
 
                                 return (
                                   <div className="flex flex-wrap items-center justify-end gap-1">
-                                    {selectedDerivedDimensions.map((dimension) => (
-                                      <button
-                                        key={`${axis}-combined-${dimension}`}
-                                        type="button"
-                                        className="rounded border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-primary/20"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          onAction?.(
-                                            `dimfnremove|${axis}|${encodeURIComponent(dimension)}`,
-                                          );
-                                        }}
-                                      >
-                                        {getDerivedDimensionButtonLabel(dimension)}
-                                      </button>
-                                    ))}
+                                    {selectedDerivedDimensions.map(
+                                      (dimension) => (
+                                        <button
+                                          key={`${axis}-combined-${dimension}`}
+                                          type="button"
+                                          className="rounded border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-primary/20"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            onAction?.(
+                                              `dimfnremove|${axis}|${encodeURIComponent(dimension)}`,
+                                            );
+                                          }}
+                                        >
+                                          {getDerivedDimensionButtonLabel(
+                                            dimension,
+                                          )}
+                                        </button>
+                                      ),
+                                    )}
                                   </div>
                                 );
                               })()}
@@ -898,8 +1006,12 @@ export default function AttributesPanel({
                                     label: formatFieldOptionLabel(col.name),
                                     defaultArg: "",
                                   },
-                                  ...(isTextType(col.type) ? textFunctionItems : []),
-                                  ...(isTemporalType(col.type) ? dateFunctionItems : []),
+                                  ...(isTextType(col.type)
+                                    ? textFunctionItems
+                                    : []),
+                                  ...(isTemporalType(col.type)
+                                    ? dateFunctionItems
+                                    : []),
                                 ] as DimensionFunctionItem[]
                               ).map((item) => {
                                 const axis = activeFunctionTab;
@@ -920,10 +1032,13 @@ export default function AttributesPanel({
                                         : item.argKind === "range"
                                           ? argValue || "1:10"
                                           : item.argKind === "format"
-                                            ? (argValue || "").trim() || "YY-MM-DD"
+                                            ? (argValue || "").trim() ||
+                                              "YY-MM-DD"
                                             : item.argKind === "age_part"
                                               ? (() => {
-                                                  const normalized = (argValue || "year")
+                                                  const normalized = (
+                                                    argValue || "year"
+                                                  )
                                                     .trim()
                                                     .toLowerCase();
                                                   if (
@@ -936,7 +1051,9 @@ export default function AttributesPanel({
                                                   return "year";
                                                 })()
                                               : "";
-                                const encodedColumn = encodeURIComponent(col.name);
+                                const encodedColumn = encodeURIComponent(
+                                  col.name,
+                                );
                                 const encodedArg = encodeURIComponent(
                                   item.key === "field"
                                     ? ""
@@ -952,17 +1069,23 @@ export default function AttributesPanel({
                                   axis === "row"
                                     ? (selection?.rowDimensions ?? [])
                                     : (selection?.columnDimensions ?? []);
-                                const selectedDerivedDimensions = axisDimensions.filter(
-                                  (dimension) =>
-                                    getDerivedDimensionColumn(dimension) === col.name &&
-                                    getDerivedDimensionFns(dimension).length > 0,
-                                );
+                                const selectedDerivedDimensions =
+                                  axisDimensions.filter(
+                                    (dimension) =>
+                                      getDerivedDimensionColumn(dimension) ===
+                                        col.name &&
+                                      getDerivedDimensionFns(dimension).length >
+                                        0,
+                                  );
                                 const isSelected =
                                   item.key === "field"
                                     ? axisDimensions.includes(token)
                                     : chainEnabled
-                                      ? selectedDerivedDimensions.some((dimension) =>
-                                          getDerivedDimensionFns(dimension).includes(item.key),
+                                      ? selectedDerivedDimensions.some(
+                                          (dimension) =>
+                                            getDerivedDimensionFns(
+                                              dimension,
+                                            ).includes(item.key),
                                         )
                                       : axisDimensions.includes(token);
 
@@ -970,7 +1093,9 @@ export default function AttributesPanel({
                                   chainEnabled &&
                                   item.key !== "field" &&
                                   selectedDerivedDimensions.some((dimension) =>
-                                    getDerivedDimensionFns(dimension).includes(item.key),
+                                    getDerivedDimensionFns(dimension).includes(
+                                      item.key,
+                                    ),
                                   );
 
                                 return (
@@ -993,7 +1118,9 @@ export default function AttributesPanel({
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         const actionMode =
-                                          item.key !== "field" && chainEnabled ? "chain" : "toggle";
+                                          item.key !== "field" && chainEnabled
+                                            ? "chain"
+                                            : "toggle";
                                         onAction?.(
                                           `dimfn|${axis}|${item.key}|${encodedColumn}|${encodedArg}|${actionMode}`,
                                         );
@@ -1002,7 +1129,8 @@ export default function AttributesPanel({
                                       {item.label}
                                     </button>
 
-                                    {item.key !== "field" && item.argKind === "age_part" ? (
+                                    {item.key !== "field" &&
+                                    item.argKind === "age_part" ? (
                                       <select
                                         value={normalizedArg || "year"}
                                         disabled={disableButton}
@@ -1015,10 +1143,13 @@ export default function AttributesPanel({
                                             event.target.value,
                                           );
                                         }}
-                                        onClick={(event) => event.stopPropagation()}
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
                                         className={cn(
                                           "rounded border bg-background px-1 py-0.5 text-[10px] outline-none",
-                                          disableButton && "cursor-not-allowed opacity-60",
+                                          disableButton &&
+                                            "cursor-not-allowed opacity-60",
                                           "w-[74px]",
                                         )}
                                       >
@@ -1039,11 +1170,18 @@ export default function AttributesPanel({
                                             event.target.value,
                                           );
                                         }}
-                                        onClick={(event) => event.stopPropagation()}
-                                        maxLength={item.argKind === "char" ? 1 : undefined}
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        maxLength={
+                                          item.argKind === "char"
+                                            ? 1
+                                            : undefined
+                                        }
                                         className={cn(
                                           "rounded border bg-background px-1 py-0.5 text-[10px] outline-none",
-                                          disableButton && "cursor-not-allowed opacity-60",
+                                          disableButton &&
+                                            "cursor-not-allowed opacity-60",
                                           item.argKind === "range"
                                             ? "w-[58px]"
                                             : item.argKind === "format"
@@ -1053,7 +1191,9 @@ export default function AttributesPanel({
                                                 : "w-[36px] text-center",
                                         )}
                                         placeholder={
-                                          item.argKind === "format" ? "YY-MM-DD" : undefined
+                                          item.argKind === "format"
+                                            ? "YY-MM-DD"
+                                            : undefined
                                         }
                                       />
                                     ) : null}
@@ -1067,7 +1207,8 @@ export default function AttributesPanel({
                         !isTextType(col.type) &&
                         !isTemporalType(col.type) ? (
                           <p className="mt-2 text-[11px] text-muted-foreground italic">
-                            Function options are available for text and date/time fields.
+                            Function options are available for text and
+                            date/time fields.
                           </p>
                         ) : null}
                       </div>

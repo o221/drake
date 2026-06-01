@@ -15,6 +15,7 @@ export interface QueryBuilderSelection {
   columnDimensions: string[];
   measures: string[];
   limit: number;
+  includeSubtotals?: boolean;
   dimensionAliases?: Record<string, string>;
   rowSortDirections?: Record<string, "asc" | "desc">;
   rowSortPriority?: string[];
@@ -57,7 +58,10 @@ function toAggregateExpr(filter: FilterExpression, col: string): string {
   return isNumericLikeType(filter.columnType) ? `AVG(${col})` : `MAX(${col})`;
 }
 
-function buildFilterPredicate(filter: FilterExpression, expr: string): string | null {
+function buildFilterPredicate(
+  filter: FilterExpression,
+  expr: string,
+): string | null {
   switch (filter.type) {
     case "INCLUDE":
       if (filter.values.length) {
@@ -130,6 +134,33 @@ function buildFilterPredicate(filter: FilterExpression, expr: string): string | 
   }
 }
 
+function normalizeFilterConjunction(filter: FilterExpression): "AND" | "OR" {
+  return filter.conjunction === "OR" ? "OR" : "AND";
+}
+
+function buildPredicatesWithConjunction(
+  filters: FilterExpression[],
+  toPredicate: (filter: FilterExpression) => string | null,
+): string[] {
+  const clauses: string[] = [];
+
+  filters.forEach((filter) => {
+    const predicate = toPredicate(filter);
+    if (!predicate) {
+      return;
+    }
+
+    if (clauses.length === 0) {
+      clauses.push(predicate);
+      return;
+    }
+
+    clauses.push(`${normalizeFilterConjunction(filter)} ${predicate}`);
+  });
+
+  return clauses;
+}
+
 function toLabel(value: string): string {
   return value.split("_").join(" ");
 }
@@ -193,7 +224,11 @@ function getDefaultMeasureAlias(parsed: {
   }
 }
 
-function getMeasureSql(measure: string, tableAlias: string, asAlias?: string): string {
+function getMeasureSql(
+  measure: string,
+  tableAlias: string,
+  asAlias?: string,
+): string {
   const parsed = parseMeasureString(measure);
   if (parsed.column === "*") {
     if (parsed.aggregator === "count_distinct") {
@@ -250,7 +285,9 @@ function getMeasureSql(measure: string, tableAlias: string, asAlias?: string): s
   }
 }
 
-export function buildQueryBuilderModel(columns: DataSourceColumn[]): QueryBuilderModel {
+export function buildQueryBuilderModel(
+  columns: DataSourceColumn[],
+): QueryBuilderModel {
   const dimensionOptions: QueryOption[] = [
     {
       value: NONE_DIMENSION,
@@ -262,7 +299,9 @@ export function buildQueryBuilderModel(columns: DataSourceColumn[]): QueryBuilde
     })),
   ];
 
-  const numericColumns = columns.filter((column) => isNumericColumnType(column.type));
+  const numericColumns = columns.filter((column) =>
+    isNumericColumnType(column.type),
+  );
   const measureOptions: QueryOption[] = [
     {
       value: "count:*",
@@ -352,7 +391,9 @@ export function buildQueryBuilderModel(columns: DataSourceColumn[]): QueryBuilde
   };
 }
 
-export function getDefaultQuerySelection(model: QueryBuilderModel): QueryBuilderSelection {
+export function getDefaultQuerySelection(
+  model: QueryBuilderModel,
+): QueryBuilderSelection {
   // Default to an empty selection (no pre-filled rows/columns)
   return {
     rowDimensions: [],
@@ -369,8 +410,11 @@ export function parseMeasureString(measure: string): {
 } {
   // format: "agg:col" or "count:*" optionally with "|alias=custom"
   const [base, tail] = measure.split("|");
-  const aliasPart = tail?.startsWith("alias=") ? tail.slice("alias=".length) : undefined;
-  if (base === "count:*") return { aggregator: "count", column: "*", alias: aliasPart };
+  const aliasPart = tail?.startsWith("alias=")
+    ? tail.slice("alias=".length)
+    : undefined;
+  if (base === "count:*")
+    return { aggregator: "count", column: "*", alias: aliasPart };
   const [aggregator, column] = base.split(":");
   return { aggregator: aggregator ?? "count", column, alias: aliasPart };
 }
@@ -383,7 +427,10 @@ function decodeTokenPart(value: string): string {
   }
 }
 
-function parseDimensionArgChain(encodedArgs: string, fnCount: number): string[] {
+function parseDimensionArgChain(
+  encodedArgs: string,
+  fnCount: number,
+): string[] {
   const decoded = decodeTokenPart(encodedArgs);
   if (!decoded) {
     return new Array<string>(fnCount).fill("");
@@ -392,7 +439,9 @@ function parseDimensionArgChain(encodedArgs: string, fnCount: number): string[] 
   try {
     const parsed = JSON.parse(decoded) as unknown;
     if (Array.isArray(parsed)) {
-      return new Array<string>(fnCount).fill("").map((_, index) => String(parsed[index] ?? ""));
+      return new Array<string>(fnCount)
+        .fill("")
+        .map((_, index) => String(parsed[index] ?? ""));
     }
   } catch {
     // ignore and fall back to legacy single-arg parsing below
@@ -401,7 +450,10 @@ function parseDimensionArgChain(encodedArgs: string, fnCount: number): string[] 
   return [decoded, ...new Array<string>(Math.max(0, fnCount - 1)).fill("")];
 }
 
-function formatDerivedDimensionFnLabel(fnKey: string, columnLabel: string): string {
+function formatDerivedDimensionFnLabel(
+  fnKey: string,
+  columnLabel: string,
+): string {
   switch (fnKey) {
     case "uppercase":
       return `Uppercase ${columnLabel}`;
@@ -515,7 +567,9 @@ function applyDerivedDimensionFunction(
   rawArg: string,
   useTextCoercion: boolean,
 ): string {
-  const textExpr = useTextCoercion ? `COALESCE(CAST(${expr} AS VARCHAR), '')` : expr;
+  const textExpr = useTextCoercion
+    ? `COALESCE(CAST(${expr} AS VARCHAR), '')`
+    : expr;
 
   switch (fnKey) {
     case "uppercase":
@@ -618,7 +672,8 @@ function parseDerivedDimensionToken(
   dimension: string,
 ): { fnKeys: string[]; columnName: string; rawArgs: string[] } | null {
   if (dimension.startsWith("__fn__|")) {
-    const [, fnKey = "", encodedColumn = "", encodedArg = ""] = dimension.split("|");
+    const [, fnKey = "", encodedColumn = "", encodedArg = ""] =
+      dimension.split("|");
     const fnKeys = fnKey.split(".").filter(Boolean);
     return {
       fnKeys: fnKeys.length ? fnKeys : [fnKey],
@@ -669,7 +724,12 @@ export function getDimensionDisplayLabel(
     const columnLabel = toLabel(parsed.columnName || "value");
     if (singleFn === "age") {
       const normalized = (parsed.rawArgs[0] || "year").trim().toLowerCase();
-      const unit = normalized === "month" ? "Months" : normalized === "day" ? "Days" : "Years";
+      const unit =
+        normalized === "month"
+          ? "Months"
+          : normalized === "day"
+            ? "Days"
+            : "Years";
       return `Age in ${unit} ${columnLabel}`;
     }
 
@@ -691,7 +751,9 @@ export function getDimensionDisplayLabel(
   }
 
   const columnLabel = toLabel(parsed.columnName || "value");
-  const fnLabels = parsed.fnKeys.map((fnKey) => formatDerivedDimensionFnLabel(fnKey, columnLabel));
+  const fnLabels = parsed.fnKeys.map((fnKey) =>
+    formatDerivedDimensionFnLabel(fnKey, columnLabel),
+  );
   if (fnLabels.length <= 1) {
     return fnLabels[0] ?? columnLabel;
   }
@@ -716,7 +778,12 @@ function resolveDimensionExpression(
   const aliasLabel = getDimensionDisplayLabel(dimension, dimensionAliases);
   const expr = fnKeys.reduce(
     (currentExpr, fnKey, index) =>
-      applyDerivedDimensionFunction(fnKey, currentExpr, rawArgs[index] ?? "", index > 0),
+      applyDerivedDimensionFunction(
+        fnKey,
+        currentExpr,
+        rawArgs[index] ?? "",
+        index > 0,
+      ),
     columnExpr,
   );
 
@@ -726,7 +793,18 @@ function resolveDimensionExpression(
   };
 }
 
-export function formatMeasureString(aggregator: string, column?: string, alias?: string): string {
+export function resolveDimensionValueExpression(
+  dimension: string,
+  quotedTableAlias: string,
+): string {
+  return resolveDimensionExpression(dimension, quotedTableAlias).expr;
+}
+
+export function formatMeasureString(
+  aggregator: string,
+  column?: string,
+  alias?: string,
+): string {
   const base = column ? `${aggregator}:${column}` : `${aggregator}:*`;
   if (alias && alias.length) return `${base}|alias=${alias}`;
   return base;
@@ -788,7 +866,9 @@ function buildRowOrderByClause(
   );
   const orderedDimensions = [
     ...prioritizedDimensions,
-    ...rowDimensions.filter((dimension) => !prioritizedDimensions.includes(dimension)),
+    ...rowDimensions.filter(
+      (dimension) => !prioritizedDimensions.includes(dimension),
+    ),
   ];
 
   return orderedDimensions
@@ -797,7 +877,8 @@ function buildRowOrderByClause(
       if (!alias) {
         return null;
       }
-      const direction = rowSortDirections?.[rowDimension] === "desc" ? "DESC" : "ASC";
+      const direction =
+        rowSortDirections?.[rowDimension] === "desc" ? "DESC" : "ASC";
       return `${quoteIdentifier(alias)} ${direction}`;
     })
     .filter((part): part is string => Boolean(part))
@@ -826,7 +907,9 @@ function orderColumnDimensionsByPriority(
   );
   const orderedDimensions = [
     ...prioritizedDimensions,
-    ...columnDimensions.filter((dimension) => !prioritizedDimensions.includes(dimension)),
+    ...columnDimensions.filter(
+      (dimension) => !prioritizedDimensions.includes(dimension),
+    ),
   ];
 
   return orderedDimensions
@@ -843,13 +926,36 @@ function getPivotOnDimensionClause(alias: string): string {
   return quotedAlias;
 }
 
+function buildGroupByClause(
+  resolvedRowDimensions: Array<{ expr: string; alias: string }>,
+  resolvedColumnDimensions: Array<{ expr: string; alias: string }>,
+  includeSubtotals?: boolean,
+): string {
+  const rowExprs = resolvedRowDimensions.map((dimension) => dimension.expr);
+  const columnExprs = resolvedColumnDimensions.map(
+    (dimension) => dimension.expr,
+  );
+
+  if (!includeSubtotals) {
+    return "GROUP BY ALL";
+  }
+
+  const allExprs = [...rowExprs, ...columnExprs];
+  if (!allExprs.length) {
+    return "GROUP BY ALL";
+  }
+
+  return `GROUP BY ROLLUP (${allExprs.join(", ")})`;
+}
+
 export function setAxisDimension(
   selection: QueryBuilderSelection,
   axis: "row" | "column",
   index: number,
   dimension: string,
 ): QueryBuilderSelection {
-  const source = axis === "row" ? selection.rowDimensions : selection.columnDimensions;
+  const source =
+    axis === "row" ? selection.rowDimensions : selection.columnDimensions;
   const next = [...source];
 
   while (next.length <= index) {
@@ -874,8 +980,13 @@ export function getAxisDimensionValue(values: string[], index: number): string {
   return values[index] ?? NONE_DIMENSION;
 }
 
-export function getAxisLabels(values: string[], options: QueryOption[]): string[] {
-  return values.map((value) => options.find((option) => option.value === value)?.label ?? value);
+export function getAxisLabels(
+  values: string[],
+  options: QueryOption[],
+): string[] {
+  return values.map(
+    (value) => options.find((option) => option.value === value)?.label ?? value,
+  );
 }
 
 export function buildQueryFromSelection(
@@ -888,18 +999,37 @@ export function buildQueryFromSelection(
   }
 
   // Attempt to extract the alias from the provided fromClauseSql (e.g. read_parquet('x') as "_abc")
-  const aliasMatch = fromClauseSql.match(/\bas\s+("([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/i);
-  const tableAlias = aliasMatch ? (aliasMatch[2] ?? aliasMatch[3]) : "__drake_data_foundation";
-  const quotedTableAlias = tableAlias.startsWith('"') ? tableAlias : `"${tableAlias}"`;
+  const aliasMatch = fromClauseSql.match(
+    /\bas\s+("([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/i,
+  );
+  const tableAlias = aliasMatch
+    ? (aliasMatch[2] ?? aliasMatch[3])
+    : "__drake_data_foundation";
+  const quotedTableAlias = tableAlias.startsWith('"')
+    ? tableAlias
+    : `"${tableAlias}"`;
   const rowDimensions = normalizeDimensions(selection.rowDimensions);
   const columnDimensions = normalizeDimensions(selection.columnDimensions);
   const resolvedRowDimensions = rowDimensions.map((dimension) =>
-    resolveDimensionExpression(dimension, quotedTableAlias, selection.dimensionAliases),
+    resolveDimensionExpression(
+      dimension,
+      quotedTableAlias,
+      selection.dimensionAliases,
+    ),
   );
   const resolvedColumnDimensions = columnDimensions.map((dimension) =>
-    resolveDimensionExpression(dimension, quotedTableAlias, selection.dimensionAliases),
+    resolveDimensionExpression(
+      dimension,
+      quotedTableAlias,
+      selection.dimensionAliases,
+    ),
   );
   const selectedMeasures = selection.measures;
+  const groupByClause = buildGroupByClause(
+    resolvedRowDimensions,
+    resolvedColumnDimensions,
+    selection.includeSubtotals,
+  );
   const rowOrderByClause = buildRowOrderByClause(
     rowDimensions,
     resolvedRowDimensions,
@@ -920,18 +1050,11 @@ export function buildQueryFromSelection(
     return `SELECT 'Choose attributes to view' AS "message";`;
   }
 
-  const whereParts: string[] = [];
-  const aggregateFilters: FilterExpression[] = [];
-  filters.forEach((filter) => {
+  const detailFilters = filters.filter((filter) => !filter.onAggregates);
+  const aggregateFilters = filters.filter((filter) => filter.onAggregates);
+  const whereParts = buildPredicatesWithConjunction(detailFilters, (filter) => {
     const col = `${quotedTableAlias}.${quoteIdentifier(filter.column)}`;
-    if (filter.onAggregates) {
-      aggregateFilters.push(filter);
-    } else {
-      const predicate = buildFilterPredicate(filter, col);
-      if (predicate) {
-        whereParts.push(predicate);
-      }
-    }
+    return buildFilterPredicate(filter, col);
   });
 
   // If we have column dimensions, use DuckDB PIVOT for efficient server-side pivoting.
@@ -944,10 +1067,12 @@ export function buildQueryFromSelection(
           : DEFAULT_LIMIT;
     const selectParts = [
       ...resolvedRowDimensions.map(
-        (dimension) => `${dimension.expr} AS ${quoteIdentifier(dimension.alias)}`,
+        (dimension) =>
+          `${dimension.expr} AS ${quoteIdentifier(dimension.alias)}`,
       ),
       ...orderedColumnDimensions.map(
-        (dimension) => `${dimension.expr} AS ${quoteIdentifier(dimension.alias)}`,
+        (dimension) =>
+          `${dimension.expr} AS ${quoteIdentifier(dimension.alias)}`,
       ),
     ];
 
@@ -956,24 +1081,22 @@ export function buildQueryFromSelection(
     sql += `FROM ${fromClauseSql}\n`;
 
     if (whereParts.length) {
-      sql += `WHERE ${whereParts.join("\n  AND ")}\n`;
+      sql += `WHERE ${whereParts.join("\n  ")}\n`;
     }
 
-    sql += "GROUP BY ALL\n";
+    sql += `${groupByClause}\n`;
 
-    const havingParts: string[] = [];
-    aggregateFilters.forEach((filter) => {
-      if (!filter.aggregateAlias) {
-        return;
-      }
-      const predicate = buildFilterPredicate(filter, quoteIdentifier(filter.aggregateAlias));
-      if (predicate) {
-        havingParts.push(predicate);
-      }
-    });
+    const havingParts = buildPredicatesWithConjunction(
+      aggregateFilters.filter((filter) => Boolean(filter.aggregateAlias)),
+      (filter) =>
+        buildFilterPredicate(
+          filter,
+          quoteIdentifier(filter.aggregateAlias ?? ""),
+        ),
+    );
 
     if (havingParts.length) {
-      sql += `HAVING ${havingParts.join("\n  AND ")}\n`;
+      sql += `HAVING ${havingParts.join("\n  ")}\n`;
     }
 
     if (rowOrderByClause) {
@@ -1014,33 +1137,32 @@ export function buildQueryFromSelection(
       const uniqueAlias = seen === 0 ? baseAlias : `${baseAlias} ${seen + 1}`;
       cteParts.push(getMeasureSql(measure, quotedTableAlias, uniqueAlias));
       measureAliases.push(uniqueAlias);
-      if (parsed.column && parsed.column !== "*" && !measureAliasByColumn.has(parsed.column)) {
+      if (
+        parsed.column &&
+        parsed.column !== "*" &&
+        !measureAliasByColumn.has(parsed.column)
+      ) {
         measureAliasByColumn.set(parsed.column, uniqueAlias);
       }
     });
 
-    const pivotHavingParts: string[] = [];
-    aggregateFilters.forEach((filter) => {
-      const col = `${quotedTableAlias}.${quoteIdentifier(filter.column)}`;
-      const aliasExpr = measureAliasByColumn.get(filter.column);
-      const predicate = buildFilterPredicate(
-        filter,
-        filter.aggregateAlias
-          ? quoteIdentifier(filter.aggregateAlias)
-          : aliasExpr
-            ? quoteIdentifier(aliasExpr)
-            : toAggregateExpr(filter, col),
-      );
-      if (predicate) {
-        pivotHavingParts.push(predicate);
-      }
-    });
+    const pivotHavingParts = buildPredicatesWithConjunction(
+      aggregateFilters,
+      (filter) => {
+        const col = `${quotedTableAlias}.${quoteIdentifier(filter.column)}`;
+        const aliasExpr = measureAliasByColumn.get(filter.column);
+        return buildFilterPredicate(
+          filter,
+          filter.aggregateAlias
+            ? quoteIdentifier(filter.aggregateAlias)
+            : aliasExpr
+              ? quoteIdentifier(aliasExpr)
+              : toAggregateExpr(filter, col),
+        );
+      },
+    );
 
-    // Build GROUP BY list (row + column dimensions)
-    const groupByParts = [
-      ...resolvedRowDimensions.map((d) => d.expr),
-      ...resolvedColumnDimensions.map((d) => d.expr),
-    ];
+    const usingAggregate = selection.includeSubtotals ? "SUM" : "FIRST";
 
     let sql = "WITH __cells AS (\n";
     sql += "  SELECT\n";
@@ -1048,12 +1170,12 @@ export function buildQueryFromSelection(
     sql += `  FROM ${fromClauseSql}\n`;
 
     if (whereParts.length) {
-      sql += `  WHERE ${whereParts.join("\n    AND ")}\n`;
+      sql += `  WHERE ${whereParts.join("\n    ")}\n`;
     }
 
-    sql += "  GROUP BY ALL\n";
+    sql += `${groupByClause}\n`;
     if (pivotHavingParts.length) {
-      sql += `  HAVING ${pivotHavingParts.join("\n    AND ")}\n`;
+      sql += `  HAVING ${pivotHavingParts.join("\n    ")}\n`;
     }
     sql += ")\n\n";
 
@@ -1070,7 +1192,10 @@ export function buildQueryFromSelection(
     sql +=
       "USING " +
       measureAliases
-        .map((alias) => `FIRST(${quoteIdentifier(alias)}) AS ${quoteIdentifier(alias)}`)
+        .map(
+          (alias) =>
+            `FIRST(${quoteIdentifier(alias)}) AS ${quoteIdentifier(alias)}`,
+        )
         .join(", ");
 
     if (rowOrderByClause) {
@@ -1087,7 +1212,9 @@ export function buildQueryFromSelection(
   const measureAliasByColumn = new Map<string, string>();
 
   resolvedRowDimensions.forEach((dimension) => {
-    selectParts.push(`${dimension.expr} AS ${quoteIdentifier(dimension.alias)}`);
+    selectParts.push(
+      `${dimension.expr} AS ${quoteIdentifier(dimension.alias)}`,
+    );
     groupByParts.push(dimension.expr);
   });
 
@@ -1100,27 +1227,30 @@ export function buildQueryFromSelection(
     aliasCounts.set(baseAlias, seen + 1);
     const uniqueAlias = seen === 0 ? baseAlias : `${baseAlias} ${seen + 1}`;
     selectParts.push(getMeasureSql(m, quotedTableAlias, uniqueAlias));
-    if (parsed.column && parsed.column !== "*" && !measureAliasByColumn.has(parsed.column)) {
+    if (
+      parsed.column &&
+      parsed.column !== "*" &&
+      !measureAliasByColumn.has(parsed.column)
+    ) {
       measureAliasByColumn.set(parsed.column, uniqueAlias);
     }
   });
 
-  const havingParts: string[] = [];
-  aggregateFilters.forEach((filter) => {
-    const col = `${quotedTableAlias}.${quoteIdentifier(filter.column)}`;
-    const aliasExpr = measureAliasByColumn.get(filter.column);
-    const predicate = buildFilterPredicate(
-      filter,
-      filter.aggregateAlias
-        ? quoteIdentifier(filter.aggregateAlias)
-        : aliasExpr
-          ? quoteIdentifier(aliasExpr)
-          : toAggregateExpr(filter, col),
-    );
-    if (predicate) {
-      havingParts.push(predicate);
-    }
-  });
+  const havingParts = buildPredicatesWithConjunction(
+    aggregateFilters,
+    (filter) => {
+      const col = `${quotedTableAlias}.${quoteIdentifier(filter.column)}`;
+      const aliasExpr = measureAliasByColumn.get(filter.column);
+      return buildFilterPredicate(
+        filter,
+        filter.aggregateAlias
+          ? quoteIdentifier(filter.aggregateAlias)
+          : aliasExpr
+            ? quoteIdentifier(aliasExpr)
+            : toAggregateExpr(filter, col),
+      );
+    },
+  );
 
   const limit =
     Number.isFinite(selection.limit) && selection.limit > 0
@@ -1134,15 +1264,15 @@ export function buildQueryFromSelection(
   sql += `FROM ${fromClauseSql}\n`;
 
   if (whereParts.length) {
-    sql += `WHERE ${whereParts.join("\n  AND ")}\n`;
+    sql += `WHERE ${whereParts.join("\n  ")}\n`;
   }
 
   if (groupByParts.length) {
-    sql += "GROUP BY ALL\n";
+    sql += `${groupByClause}\n`;
   }
 
   if (havingParts.length) {
-    sql += `HAVING ${havingParts.join("\n  AND ")}\n`;
+    sql += `HAVING ${havingParts.join("\n  ")}\n`;
   }
 
   if (groupByParts.length) {
@@ -1204,7 +1334,9 @@ function parseMeasureExpression(expr: string): string | null {
     return "count:*";
   }
 
-  const distinctMatch = normalized.match(/^COUNT\s*\(\s*DISTINCT\s+(?:"[^"]+"\.)?"([^"]+)"\s*\)$/i);
+  const distinctMatch = normalized.match(
+    /^COUNT\s*\(\s*DISTINCT\s+(?:"[^"]+"\.)?"([^"]+)"\s*\)$/i,
+  );
   if (distinctMatch) {
     return `count_distinct:${distinctMatch[1]}`;
   }
@@ -1237,10 +1369,16 @@ function parseDimensionExpression(expr: string): string | null {
   return null;
 }
 
-function parseConditionToFilter(condition: string, onAggregates: boolean): FilterExpression | null {
+function parseConditionToFilter(
+  condition: string,
+  onAggregates: boolean,
+  conjunction: "AND" | "OR" = "AND",
+): FilterExpression | null {
   const normalized = condition.trim();
 
-  const inMatch = normalized.match(/^(?:"[^"]+"\.)?"([^"]+)"\s+IN\s*\(([^)]+)\)$/i);
+  const inMatch = normalized.match(
+    /^(?:"[^"]+"\.)?"([^"]+)"\s+IN\s*\(([^)]+)\)$/i,
+  );
   if (inMatch) {
     const values = inMatch[2]
       .split(/\s*,\s*/)
@@ -1252,10 +1390,13 @@ function parseConditionToFilter(condition: string, onAggregates: boolean): Filte
       type: "INCLUDE",
       values,
       onAggregates,
+      conjunction,
     };
   }
 
-  const notInMatch = normalized.match(/^(?:"[^"]+"\.)?"([^"]+)"\s+NOT\s+IN\s*\(([^)]+)\)$/i);
+  const notInMatch = normalized.match(
+    /^(?:"[^"]+"\.)?"([^"]+)"\s+NOT\s+IN\s*\(([^)]+)\)$/i,
+  );
   if (notInMatch) {
     const values = notInMatch[2]
       .split(/\s*,\s*/)
@@ -1267,6 +1408,7 @@ function parseConditionToFilter(condition: string, onAggregates: boolean): Filte
       type: "EXCLUDE",
       values,
       onAggregates,
+      conjunction,
     };
   }
 
@@ -1297,6 +1439,7 @@ function parseConditionToFilter(condition: string, onAggregates: boolean): Filte
       type,
       values: [typedValue],
       onAggregates,
+      conjunction,
     };
   }
 
@@ -1312,6 +1455,7 @@ function parseConditionToFilter(condition: string, onAggregates: boolean): Filte
       type,
       values: [value.replace(/%/g, "")],
       onAggregates,
+      conjunction,
     };
   }
 
@@ -1327,12 +1471,16 @@ function extractClause(sql: string, clause: string): string | null {
   return match ? match[1].trim() : null;
 }
 
-function splitConditions(clause: string): string[] {
-  const conditions: string[] = [];
+function splitConditionsWithConjunction(
+  clause: string,
+): Array<{ condition: string; conjunction: "AND" | "OR" }> {
+  const conditions: Array<{ condition: string; conjunction: "AND" | "OR" }> =
+    [];
   let depth = 0;
   let inSingle = false;
   let inDouble = false;
   let current = "";
+  let nextConjunction: "AND" | "OR" = "AND";
 
   for (let i = 0; i < clause.length; i += 1) {
     const char = clause[i];
@@ -1353,18 +1501,32 @@ function splitConditions(clause: string): string[] {
       }
     }
 
-    if (!inSingle && !inDouble && depth === 0 && clause.slice(i, i + 5).toUpperCase() === " AND ") {
-      conditions.push(current.trim());
-      current = "";
-      i += 4;
-      continue;
+    if (!inSingle && !inDouble && depth === 0) {
+      const andToken = clause.slice(i, i + 5).toUpperCase();
+      const orToken = clause.slice(i, i + 4).toUpperCase();
+      if (andToken === " AND " || orToken === " OR ") {
+        const trimmed = current.trim();
+        if (trimmed) {
+          conditions.push({
+            condition: trimmed,
+            conjunction: nextConjunction,
+          });
+        }
+        current = "";
+        nextConjunction = andToken === " AND " ? "AND" : "OR";
+        i += andToken === " AND " ? 4 : 3;
+        continue;
+      }
     }
 
     current += char;
   }
 
   if (current.trim()) {
-    conditions.push(current.trim());
+    conditions.push({
+      condition: current.trim(),
+      conjunction: nextConjunction,
+    });
   }
 
   return conditions;
@@ -1424,31 +1586,39 @@ export function reverseParseQueryFromSql(sql: string): {
       : [];
 
     selection.columnDimensions = columnDims;
-    selection.rowDimensions = dimensions.filter((dimension) => !columnDims.includes(dimension));
+    selection.rowDimensions = dimensions.filter(
+      (dimension) => !columnDims.includes(dimension),
+    );
 
     const whereMatch = cleanedSql.match(/\bWHERE\s+([\s\S]*?)\s+GROUP BY\b/i);
     if (whereMatch) {
-      splitConditions(whereMatch[1]).forEach((condition) => {
-        const filter = parseConditionToFilter(condition, false);
-        if (filter) {
-          filters.push(filter);
-        }
-      });
+      splitConditionsWithConjunction(whereMatch[1]).forEach(
+        ({ condition, conjunction }) => {
+          const filter = parseConditionToFilter(condition, false, conjunction);
+          if (filter) {
+            filters.push(filter);
+          }
+        },
+      );
     }
 
     const havingMatch = cleanedSql.match(
       /\bHAVING\s+([\s\S]*?)(?:\s+PIVOT\b|\s+ORDER BY\b|\s+LIMIT\b|$)/i,
     );
     if (havingMatch) {
-      splitConditions(havingMatch[1]).forEach((condition) => {
-        const filter = parseConditionToFilter(condition, true);
-        if (filter) {
-          filters.push(filter);
-        }
-      });
+      splitConditionsWithConjunction(havingMatch[1]).forEach(
+        ({ condition, conjunction }) => {
+          const filter = parseConditionToFilter(condition, true, conjunction);
+          if (filter) {
+            filters.push(filter);
+          }
+        },
+      );
     }
 
-    const usingMatch = cleanedSql.match(/\bUSING\s+([\s\S]*?)(?:\s+ORDER BY\b|\s+LIMIT\b|$)/i);
+    const usingMatch = cleanedSql.match(
+      /\bUSING\s+([\s\S]*?)(?:\s+ORDER BY\b|\s+LIMIT\b|$)/i,
+    );
     if (usingMatch) {
       const usingParts = splitTopLevelCommaSeparated(usingMatch[1]);
       usingParts.forEach((part) => {
@@ -1486,20 +1656,24 @@ export function reverseParseQueryFromSql(sql: string): {
   const whereClause = extractClause(cleanedSql, "WHERE");
   const havingClause = extractClause(cleanedSql, "HAVING");
   if (whereClause) {
-    splitConditions(whereClause).forEach((condition) => {
-      const filter = parseConditionToFilter(condition, false);
-      if (filter) {
-        filters.push(filter);
-      }
-    });
+    splitConditionsWithConjunction(whereClause).forEach(
+      ({ condition, conjunction }) => {
+        const filter = parseConditionToFilter(condition, false, conjunction);
+        if (filter) {
+          filters.push(filter);
+        }
+      },
+    );
   }
   if (havingClause) {
-    splitConditions(havingClause).forEach((condition) => {
-      const filter = parseConditionToFilter(condition, true);
-      if (filter) {
-        filters.push(filter);
-      }
-    });
+    splitConditionsWithConjunction(havingClause).forEach(
+      ({ condition, conjunction }) => {
+        const filter = parseConditionToFilter(condition, true, conjunction);
+        if (filter) {
+          filters.push(filter);
+        }
+      },
+    );
   }
 
   return { selection, filters };

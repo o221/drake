@@ -12,7 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { getDuckDbRuntime, type QueryRow } from "@/features/runtime/duckdbRuntime";
+import {
+  getDuckDbRuntime,
+  type QueryRow,
+} from "@/features/runtime/duckdbRuntime";
 
 type ExportFormat = "parquet" | "csv" | "xlsx" | "json" | "duckdb";
 
@@ -22,6 +25,7 @@ interface ExportResultsDialogProps {
   rows: QueryRow[];
   querySql: string;
   datasourceId?: string;
+  limitEnabled?: boolean;
 }
 
 const EXTENSIONS: Record<ExportFormat, string> = {
@@ -117,7 +121,9 @@ async function exportFileFromDuckDb(
   };
 
   if (typeof db.copyFileToBuffer !== "function") {
-    throw new Error("DuckDB runtime does not support binary file export in this environment.");
+    throw new Error(
+      "DuckDB runtime does not support binary file export in this environment.",
+    );
   }
 
   const cleanedSql = sanitizeSelectSql(querySql);
@@ -146,7 +152,9 @@ async function exportFileFromDuckDb(
 
   try {
     if (format === "duckdb") {
-      await runtime.query(`ATTACH '${path}' AS drake_export_db;`, { isInternal: true });
+      await runtime.query(`ATTACH '${path}' AS drake_export_db;`, {
+        isInternal: true,
+      });
       try {
         await runtime.query(
           `CREATE OR REPLACE TABLE drake_export_db.result AS SELECT * FROM ${fromSql};`,
@@ -176,9 +184,12 @@ async function exportFileFromDuckDb(
             : format === "xlsx"
               ? "(FORMAT GDAL, DRIVER 'xlsx')"
               : "(FORMAT PARQUET)";
-      await runtime.query(`COPY (SELECT * FROM ${fromSql}) TO '${path}' ${copyOptions};`, {
-        isInternal: true,
-      });
+      await runtime.query(
+        `COPY (SELECT * FROM ${fromSql}) TO '${path}' ${copyOptions};`,
+        {
+          isInternal: true,
+        },
+      );
     }
 
     const binary = await db.copyFileToBuffer(path);
@@ -202,13 +213,17 @@ export default function ExportResultsDialog({
   rows,
   querySql,
   datasourceId,
+  limitEnabled = true,
 }: ExportResultsDialogProps) {
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [fileName, setFileName] = useState("drake-result");
   const [chooseLocation, setChooseLocation] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
 
-  const effectiveName = useMemo(() => withExtension(fileName, format), [fileName, format]);
+  const effectiveName = useMemo(
+    () => withExtension(fileName, format),
+    [fileName, format],
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -217,12 +232,29 @@ export default function ExportResultsDialog({
     setIsExporting(false);
   }, [isOpen]);
 
+  const resolveExportRows = async (): Promise<QueryRow[]> => {
+    // When limit is off for an MSSQL source, fetch all rows via the server API
+    // because DuckDB-Wasm cannot reach the MSSQL-attached tables directly.
+    if (!limitEnabled && datasourceId?.startsWith("mssql:") && querySql) {
+      const { runMssqlQuery } =
+        await import("@/features/datasources/mssqlServerApi");
+      return runMssqlQuery(sanitizeSelectSql(querySql)) as Promise<QueryRow[]>;
+    }
+    return rows;
+  };
+
   const handleExport = async () => {
     try {
       setIsExporting(true);
+      const exportRows = await resolveExportRows();
 
       if (format === "csv") {
-        const bytes = await exportFileFromDuckDb(querySql, "csv", rows, datasourceId);
+        const bytes = await exportFileFromDuckDb(
+          querySql,
+          "csv",
+          exportRows,
+          datasourceId,
+        );
         const safeBytes = new Uint8Array(bytes.byteLength);
         safeBytes.set(bytes);
         await saveBlob(
@@ -232,7 +264,12 @@ export default function ExportResultsDialog({
           chooseLocation,
         );
       } else if (format === "json") {
-        const bytes = await exportFileFromDuckDb(querySql, "json", rows, datasourceId);
+        const bytes = await exportFileFromDuckDb(
+          querySql,
+          "json",
+          exportRows,
+          datasourceId,
+        );
         const safeBytes = new Uint8Array(bytes.byteLength);
         safeBytes.set(bytes);
         await saveBlob(
@@ -242,7 +279,12 @@ export default function ExportResultsDialog({
           chooseLocation,
         );
       } else if (format === "xlsx") {
-        const bytes = await exportFileFromDuckDb(querySql, "xlsx", rows, datasourceId);
+        const bytes = await exportFileFromDuckDb(
+          querySql,
+          "xlsx",
+          exportRows,
+          datasourceId,
+        );
         const safeBytes = new Uint8Array(bytes.byteLength);
         safeBytes.set(bytes);
         await saveBlob(
@@ -252,7 +294,12 @@ export default function ExportResultsDialog({
           chooseLocation,
         );
       } else {
-        const bytes = await exportFileFromDuckDb(querySql, format, rows, datasourceId);
+        const bytes = await exportFileFromDuckDb(
+          querySql,
+          format,
+          exportRows,
+          datasourceId,
+        );
         const safeBytes = new Uint8Array(bytes.byteLength);
         safeBytes.set(bytes);
         await saveBlob(
@@ -289,8 +336,8 @@ export default function ExportResultsDialog({
             Export Result
           </DialogTitle>
           <DialogDescription>
-            Choose a format and filename. You can also use your system save dialog to choose the
-            location.
+            Choose a format and filename. You can also use your system save
+            dialog to choose the location.
           </DialogDescription>
         </DialogHeader>
 
@@ -301,7 +348,9 @@ export default function ExportResultsDialog({
             </span>
             <select
               value={format}
-              onChange={(event) => setFormat(event.target.value as ExportFormat)}
+              onChange={(event) =>
+                setFormat(event.target.value as ExportFormat)
+              }
               className="w-full rounded-md border bg-background px-2 py-2 text-sm"
             >
               <option value="parquet">Parquet (.parquet)</option>
@@ -321,7 +370,9 @@ export default function ExportResultsDialog({
               onChange={(event) => setFileName(event.target.value)}
               placeholder="drake-result"
             />
-            <p className="text-[11px] text-muted-foreground">Will save as: {effectiveName}</p>
+            <p className="text-[11px] text-muted-foreground">
+              Will save as: {effectiveName}
+            </p>
           </label>
 
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -336,11 +387,26 @@ export default function ExportResultsDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isExporting}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isExporting}
+          >
             Cancel
           </Button>
-          <Button onClick={handleExport} disabled={isExporting || rows.length === 0}>
-            {isExporting ? "Exporting..." : "Export"}
+          <Button
+            onClick={handleExport}
+            disabled={
+              isExporting ||
+              (rows.length === 0 &&
+                (limitEnabled || !datasourceId?.startsWith("mssql:")))
+            }
+          >
+            {isExporting
+              ? !limitEnabled && datasourceId?.startsWith("mssql:")
+                ? "Fetching all rows…"
+                : "Exporting…"
+              : "Export"}
           </Button>
         </DialogFooter>
       </DialogContent>

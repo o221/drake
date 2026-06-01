@@ -1,5 +1,12 @@
-import { Filter, X, ChevronRight, ChevronDown, Plus, Edit2 } from "lucide-react";
-import { useState } from "react";
+import {
+  Filter,
+  X,
+  ChevronRight,
+  ChevronDown,
+  Plus,
+  Edit2,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { DataSourceColumn, FilterType, FilterExpression } from "@/types";
@@ -11,11 +18,16 @@ const isNumericOrTemporalType = (type: string): boolean =>
   );
 
 const isNumericType = (type: string): boolean =>
-  /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(type || "");
+  /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
+    type || "",
+  );
 
-const isTextType = (type: string): boolean => /char|varchar|string|text|uuid/i.test(type || "");
+const isTextType = (type: string): boolean =>
+  /char|varchar|string|text|uuid/i.test(type || "");
 
-const getAllowedFilterTypes = (columnType: string): Array<{ value: FilterType; label: string }> => {
+const getAllowedFilterTypes = (
+  columnType: string,
+): Array<{ value: FilterType; label: string }> => {
   const common: Array<{ value: FilterType; label: string }> = [
     { value: "INCLUDE", label: "Include" },
     { value: "EXCLUDE", label: "Exclude" },
@@ -53,6 +65,8 @@ interface FiltersPanelProps {
   columns: DataSourceColumn[];
   filters: FilterExpression[];
   filterAliasOptionsByColumn?: Record<string, string[]>;
+  filterDimensionTokenByAlias?: Record<string, string>;
+  querySql?: string;
   onAddFilter: (columnName: string) => void;
   onRemoveFilter: (id: string) => void;
   onUpdateFilter: (filter: FilterExpression) => void;
@@ -65,6 +79,8 @@ export default function FiltersPanel({
   columns,
   filters,
   filterAliasOptionsByColumn = {},
+  filterDimensionTokenByAlias = {},
+  querySql,
   onAddFilter,
   onRemoveFilter,
   onUpdateFilter,
@@ -72,23 +88,102 @@ export default function FiltersPanel({
   datasourceId,
   searchQuery = "",
 }: FiltersPanelProps) {
-  const [editingFilter, setEditingFilter] = useState<FilterExpression | null>(null);
+  const [editingFilter, setEditingFilter] = useState<FilterExpression | null>(
+    null,
+  );
 
-  const columnTypeByName = columns.reduce<Record<string, string>>((acc, column) => {
-    acc[column.name] = column.type;
-    return acc;
-  }, {});
+  const columnTypeByName = columns.reduce<Record<string, string>>(
+    (acc, column) => {
+      acc[column.name] = column.type;
+      return acc;
+    },
+    {},
+  );
 
   const handleEditValues = (filter: FilterExpression) => {
     setEditingFilter(filter);
   };
 
-  const currentColumn = editingFilter ? columns.find((c) => c.name === editingFilter.column) : null;
+  const columnNameByAlias = useMemo(() => {
+    return Object.entries(filterAliasOptionsByColumn).reduce<
+      Record<string, string>
+    >((acc, [columnName, aliases]) => {
+      aliases.forEach((alias) => {
+        if (!acc[alias]) {
+          acc[alias] = columnName;
+        }
+      });
+      return acc;
+    }, {});
+  }, [filterAliasOptionsByColumn]);
+
+  const currentSourceColumnName = editingFilter
+    ? (columnNameByAlias[editingFilter.column] ?? editingFilter.column)
+    : undefined;
+
+  const currentColumn = editingFilter
+    ? columns.find((c) => c.name === currentSourceColumnName)
+    : null;
+  const currentAliasOptions = currentSourceColumnName
+    ? (filterAliasOptionsByColumn[currentSourceColumnName] ?? [])
+    : [];
+  const currentSelectedAggregateAlias =
+    editingFilter?.aggregateAlias &&
+    currentAliasOptions.includes(editingFilter.aggregateAlias)
+      ? editingFilter.aggregateAlias
+      : currentAliasOptions[0];
+  const currentQueryValueAlias =
+    editingFilter && currentColumn
+      ? editingFilter.onAggregates
+        ? currentSelectedAggregateAlias
+        : editingFilter.column !== currentColumn.name
+          ? editingFilter.column
+          : undefined
+      : undefined;
+  const currentFilterLabel =
+    currentQueryValueAlias ?? currentColumn?.name ?? editingFilter?.column;
+  const currentDimensionValueToken =
+    currentQueryValueAlias &&
+    filterDimensionTokenByAlias[currentQueryValueAlias]
+      ? filterDimensionTokenByAlias[currentQueryValueAlias]
+      : editingFilter?.column &&
+          filterDimensionTokenByAlias[editingFilter.column]
+        ? filterDimensionTokenByAlias[editingFilter.column]
+        : undefined;
+
+  const getSourceColumnName = (filter: FilterExpression): string => {
+    return columnNameByAlias[filter.column] ?? filter.column;
+  };
+
+  const getAliasOptions = (filter: FilterExpression): string[] => {
+    return filterAliasOptionsByColumn[getSourceColumnName(filter)] ?? [];
+  };
+
+  const getSelectedAggregateAlias = (
+    filter: FilterExpression,
+  ): string | undefined => {
+    const aliasOptions = getAliasOptions(filter);
+    if (filter.aggregateAlias && aliasOptions.includes(filter.aggregateAlias)) {
+      return filter.aggregateAlias;
+    }
+    return aliasOptions[0];
+  };
 
   const filteredFilters = filters.filter((filter) => {
-    const haystack = `${filter.column} ${filter.type} ${filter.values.join(" ")}`.toLowerCase();
+    const haystack =
+      `${filter.column} ${filter.type} ${filter.values.join(" ")}`.toLowerCase();
     return haystack.includes(searchQuery.toLowerCase());
   });
+
+  const groupedFilters = useMemo(() => {
+    const aggregateLevel = filteredFilters.filter(
+      (filter) => filter.onAggregates,
+    );
+    const detailLevel = filteredFilters.filter(
+      (filter) => !filter.onAggregates,
+    );
+    return [...aggregateLevel, ...detailLevel];
+  }, [filteredFilters]);
 
   const filteredColumns = columns.filter((column) => {
     const haystack = `${column.name} ${column.type}`.toLowerCase();
@@ -108,21 +203,22 @@ export default function FiltersPanel({
         }
       }}
     >
-      {filteredFilters.length === 0 ? (
+      {groupedFilters.length === 0 ? (
         <div className="py-6 text-center text-xs text-muted-foreground italic border-2 border-dashed border-muted-foreground/35 bg-muted/20 rounded-lg flex-1 min-h-[60px] flex items-center justify-center">
           Drag attributes here to filter
         </div>
       ) : (
-        filteredFilters.map((filter) => {
-          const columnType = columnTypeByName[filter.column] ?? "";
-          const isNumericField = isNumericType(columnType);
-          const aliasOptions = filterAliasOptionsByColumn[filter.column] ?? [];
-          const canAggregateFilter = isNumericField && aliasOptions.length > 0;
+        groupedFilters.map((filter, filterIndex) => {
+          const hasPriorAtSameLevel = groupedFilters
+            .slice(0, filterIndex)
+            .some((previous) => previous.onAggregates === filter.onAggregates);
+          const sourceColumnName = getSourceColumnName(filter);
+          const columnType =
+            columnTypeByName[sourceColumnName] ?? filter.columnType ?? "";
+          const aliasOptions = getAliasOptions(filter);
+          const canAggregateFilter = aliasOptions.length > 0;
           const showAliasDropdown = aliasOptions.length > 1;
-          const selectedAlias =
-            filter.aggregateAlias && aliasOptions.includes(filter.aggregateAlias)
-              ? filter.aggregateAlias
-              : aliasOptions[0];
+          const selectedAlias = getSelectedAggregateAlias(filter);
           return (
             <div
               key={filter.id}
@@ -132,6 +228,46 @@ export default function FiltersPanel({
                 event.dataTransfer.setData("text/plain", `filter:${filter.id}`);
               }}
             >
+              {hasPriorAtSameLevel ? (
+                <div className="mb-1 inline-flex items-center gap-1 rounded border border-muted-foreground/30 bg-muted/25 p-0.5 text-[10px]">
+                  {/* <span className="px-1 text-muted-foreground">Join</span> */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateFilter({
+                        ...filter,
+                        conjunction: "AND",
+                      })
+                    }
+                    className={cn(
+                      "rounded px-1.5 py-0.5 font-medium",
+                      (filter.conjunction ?? "AND") === "AND"
+                        ? "bg-background text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    AND
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateFilter({
+                        ...filter,
+                        conjunction: "OR",
+                      })
+                    }
+                    className={cn(
+                      "rounded px-1.5 py-0.5 font-medium",
+                      filter.conjunction === "OR"
+                        ? "bg-background text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    OR
+                  </button>
+                </div>
+              ) : null}
+
               <div
                 className={cn(
                   "flex min-w-0 items-center gap-1",
@@ -176,9 +312,15 @@ export default function FiltersPanel({
               <div className="flex flex-col gap-1.5">
                 {aliasOptions.length
                   ? (() => {
-                      if (filter.onAggregates && !showAliasDropdown && selectedAlias) {
+                      if (
+                        filter.onAggregates &&
+                        !showAliasDropdown &&
+                        selectedAlias
+                      ) {
                         return (
-                          <p className="text-[10px] font-medium text-foreground">{selectedAlias}</p>
+                          <p className="text-[10px] font-medium text-foreground">
+                            {selectedAlias}
+                          </p>
                         );
                       }
 
@@ -190,7 +332,7 @@ export default function FiltersPanel({
                   <select
                     className={cn(
                       "rounded border border-input bg-background text-foreground py-0.5 px-1 text-[10px] outline-none focus:ring-2 focus:ring-ring",
-                      isNumericField ? "flex-1" : "w-full",
+                      canAggregateFilter ? "flex-1" : "w-full",
                     )}
                     value={filter.type}
                     onChange={(e) =>
@@ -202,12 +344,15 @@ export default function FiltersPanel({
                     }
                   >
                     {getAllowedFilterTypes(columnType).map((option) => (
-                      <option key={`${filter.id}-${option.value}`} value={option.value}>
+                      <option
+                        key={`${filter.id}-${option.value}`}
+                        value={option.value}
+                      >
                         {option.label}
                       </option>
                     ))}
                   </select>
-                  {isNumericField ? (
+                  {canAggregateFilter ? (
                     <label className="inline-flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground whitespace-nowrap">
                       <input
                         type="checkbox"
@@ -238,7 +383,9 @@ export default function FiltersPanel({
                       {filter.values.length > 0 ? (
                         filter.values.join(", ")
                       ) : (
-                        <span className="text-muted-foreground italic truncate">(all values)</span>
+                        <span className="text-muted-foreground italic truncate">
+                          (all values)
+                        </span>
                       )}
                     </div>
                     <button
@@ -262,14 +409,18 @@ export default function FiltersPanel({
                   <input
                     value={filter.values[0] ?? ""}
                     onChange={(event) =>
-                      onUpdateFilter({ ...filter, values: [event.target.value] })
+                      onUpdateFilter({
+                        ...filter,
+                        values: [event.target.value],
+                      })
                     }
                     placeholder="Enter value"
                     className="w-full rounded border border-muted-foreground/30 bg-muted/40 py-1 px-1.5 text-[11px] outline-none"
                   />
                 )}
 
-                {(filter.type === "BETWEEN" || filter.type === "NOT_BETWEEN") && (
+                {(filter.type === "BETWEEN" ||
+                  filter.type === "NOT_BETWEEN") && (
                   <div className="flex items-center gap-1">
                     <input
                       value={filter.values[0] ?? ""}
@@ -282,7 +433,9 @@ export default function FiltersPanel({
                       placeholder="From"
                       className="w-full rounded border border-muted-foreground/30 bg-muted/40 py-1 px-1.5 text-[11px] outline-none"
                     />
-                    <span className="text-[10px] text-muted-foreground">and</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      and
+                    </span>
                     <input
                       value={filter.values[1] ?? ""}
                       onChange={(event) =>
@@ -330,6 +483,10 @@ export default function FiltersPanel({
           isOpen={!!editingFilter}
           onOpenChange={(open) => !open && setEditingFilter(null)}
           column={currentColumn}
+          filterLabel={currentFilterLabel}
+          dimensionValueToken={currentDimensionValueToken}
+          querySql={querySql}
+          queryValueAlias={currentQueryValueAlias}
           fromClauseSql={fromClauseSql}
           datasourceId={datasourceId}
           currentFilter={editingFilter}

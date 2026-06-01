@@ -214,6 +214,7 @@ interface UrlWorkspaceState {
       | "values"
       | "onAggregates"
       | "aggregateAlias"
+      | "conjunction"
     >
   >;
   limitEnabled: boolean;
@@ -438,6 +439,12 @@ export default function WorkspaceShellModern() {
   const [presetQuery, setPresetQuery] = useState("");
   const [limitEnabled, setLimitEnabled] = useState(true);
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
+  const [lazyPreviewState, setLazyPreviewState] = useState<{
+    rows: QueryRow[];
+    offset: number;
+    hasMore: boolean;
+    fromSql: string;
+  } | null>(null);
 
   const draggingRef = useRef(false);
   const startXRef = useRef(0);
@@ -445,6 +452,7 @@ export default function WorkspaceShellModern() {
   const dragDeltaRef = useRef(0);
   const drawerWidthRef = useRef(drawerWidth);
   const previousDatasourceIdRef = useRef<string>("");
+  const suppressDatasourceAutoSelectRef = useRef(false);
   const isLoadingPresetRef = useRef(false);
   const isLoadingHistoryRef = useRef(false);
   const hasInitializedUrlStateRef = useRef(false);
@@ -469,6 +477,7 @@ export default function WorkspaceShellModern() {
         values: [...filter.values],
         onAggregates: Boolean(filter.onAggregates),
         aggregateAlias: filter.aggregateAlias,
+        conjunction: filter.conjunction === "OR" ? "OR" : "AND",
       })),
     );
     setLimitEnabled(state.limitEnabled);
@@ -581,6 +590,25 @@ export default function WorkspaceShellModern() {
     setRawResultRows(rows ?? []);
     setRawResultSql(nextSql);
     return rows;
+  };
+
+  const handleLoadMorePreview = async () => {
+    if (!lazyPreviewState || !lazyPreviewState.hasMore) {
+      return;
+    }
+    const LAZY_PAGE_SIZE = 1000;
+    const { offset, fromSql, rows: existingRows } = lazyPreviewState;
+    const chunkSql = `SELECT * FROM ${fromSql} LIMIT ${LAZY_PAGE_SIZE} OFFSET ${offset};`;
+    const chunk = await runQuery(chunkSql, {
+      datasourceId: selectedDatasourceId,
+    });
+    const chunkRows = chunk ?? [];
+    setLazyPreviewState({
+      rows: [...existingRows, ...chunkRows],
+      offset: offset + LAZY_PAGE_SIZE,
+      hasMore: chunkRows.length === LAZY_PAGE_SIZE,
+      fromSql,
+    });
   };
 
   const extractLocalDatasourceIdFromSql = (sql: string): string | null => {
@@ -724,10 +752,20 @@ export default function WorkspaceShellModern() {
   };
 
   useEffect(() => {
-    if (!selectedDatasourceId && datasources.length) {
+    if (
+      !selectedDatasourceId &&
+      datasources.length &&
+      !suppressDatasourceAutoSelectRef.current
+    ) {
       setSelectedDatasourceId(datasources[0].id);
     }
   }, [datasources, selectedDatasourceId]);
+
+  useEffect(() => {
+    if (selectedDatasourceId) {
+      suppressDatasourceAutoSelectRef.current = false;
+    }
+  }, [selectedDatasourceId]);
 
   useEffect(() => {
     const hasSelectedDatasource = Boolean(
@@ -1061,6 +1099,25 @@ export default function WorkspaceShellModern() {
     selection.rowDimensions,
   ]);
 
+  const filterDimensionTokenByAlias = useMemo(() => {
+    return [...selection.rowDimensions, ...selection.columnDimensions].reduce<
+      Record<string, string>
+    >((acc, dimension) => {
+      const alias = getDimensionDisplayLabel(
+        dimension,
+        selection.dimensionAliases,
+      );
+      if (alias && !acc[alias]) {
+        acc[alias] = dimension;
+      }
+      return acc;
+    }, {});
+  }, [
+    selection.columnDimensions,
+    selection.dimensionAliases,
+    selection.rowDimensions,
+  ]);
+
   useEffect(() => {
     setFilters((current) => {
       let hasChanges = false;
@@ -1164,6 +1221,7 @@ export default function WorkspaceShellModern() {
         values: filter.values,
         onAggregates: filter.onAggregates,
         aggregateAlias: filter.aggregateAlias,
+        conjunction: filter.conjunction === "OR" ? "OR" : "AND",
       })),
       limitEnabled,
       activeMainTab,
@@ -2067,28 +2125,63 @@ FROM (\n${selectStatements.join(
       if (!datasourceContext?.fromClauseSql) {
         return;
       }
-      const previewLimitClause = limitEnabled ? ` LIMIT ${uiResultLimit}` : "";
-      const nextSql = `SELECT * FROM ${datasourceContext.fromClauseSql}${previewLimitClause};`;
-      setResultTabs((prev) =>
-        prev.map((tab) =>
-          tab.id === "all-columns"
-            ? {
-                ...tab,
-                label: "Table: Preview",
-                query: nextSql,
-                selection: null,
-              }
-            : tab,
-        ),
-      );
-      setActiveResultTabId("all-columns");
-      setResultView("rows");
-
-      runQueryAndSyncEditor(nextSql).then((rows: any) => {
-        if (rows && rows.length > 0) {
-          setResultView("rows");
-        }
-      });
+      const fromSql = datasourceContext.fromClauseSql;
+      if (!limitEnabled) {
+        // Lazy chunked loading — load 1 000 rows at a time
+        const LAZY_PAGE_SIZE = 1000;
+        const firstChunkSql = `SELECT * FROM ${fromSql} LIMIT ${LAZY_PAGE_SIZE};`;
+        setResultTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === "all-columns"
+              ? {
+                  ...tab,
+                  label: "Table: Preview",
+                  query: firstChunkSql,
+                  selection: null,
+                }
+              : tab,
+          ),
+        );
+        setActiveResultTabId("all-columns");
+        setResultView("rows");
+        setLazyPreviewState(null);
+        runQueryAndSyncEditor(firstChunkSql).then(
+          (firstChunk: QueryRow[] | undefined) => {
+            const chunkRows = firstChunk ?? [];
+            setLazyPreviewState({
+              rows: chunkRows,
+              offset: LAZY_PAGE_SIZE,
+              hasMore: chunkRows.length === LAZY_PAGE_SIZE,
+              fromSql,
+            });
+            if (chunkRows.length > 0) {
+              setResultView("rows");
+            }
+          },
+        );
+      } else {
+        setLazyPreviewState(null);
+        const nextSql = `SELECT * FROM ${fromSql} LIMIT ${uiResultLimit};`;
+        setResultTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === "all-columns"
+              ? {
+                  ...tab,
+                  label: "Table: Preview",
+                  query: nextSql,
+                  selection: null,
+                }
+              : tab,
+          ),
+        );
+        setActiveResultTabId("all-columns");
+        setResultView("rows");
+        runQueryAndSyncEditor(nextSql).then((rows: QueryRow[] | undefined) => {
+          if (rows && rows.length > 0) {
+            setResultView("rows");
+          }
+        });
+      }
     } else if (type === "row_number") {
       // "add a Row number using SQL as the left hand column on the active tab"
       const activeTab = resultTabs.find((t) => t.id === activeResultTabId);
@@ -2145,6 +2238,7 @@ FROM (\n${selectStatements.join(
           values: [],
           onAggregates: false,
           aggregateAlias: selectedAlias,
+          conjunction: "AND",
         },
       ];
     });
@@ -2310,6 +2404,36 @@ FROM (\n${selectStatements.join(
     void runQueryAndCaptureRaw(nextSql);
   };
 
+  const handlePivotSubtotalsToggle = (next: boolean) => {
+    if (!datasourceContext?.fromClauseSql || !activePivotSelection) {
+      return;
+    }
+
+    const nextSelection: QueryBuilderSelection = {
+      ...activePivotSelection,
+      includeSubtotals: next,
+    };
+
+    if (activeResultTabId === "main") {
+      setSelection(nextSelection);
+    } else {
+      setResultTabs((current) =>
+        current.map((tab) =>
+          tab.id === activeResultTabId
+            ? { ...tab, selection: nextSelection }
+            : tab,
+        ),
+      );
+    }
+
+    const nextSql = buildQueryFromSelection(
+      nextSelection,
+      datasourceContext.fromClauseSql,
+      activeResultFilters,
+    );
+    void runQueryAndCaptureRaw(nextSql);
+  };
+
   const handleShowRaw = () => {
     setResultView("raw");
     setActiveResultTabId("main");
@@ -2392,17 +2516,53 @@ FROM (\n${selectStatements.join(
     ],
   );
 
-  const displayedRows = useMemo(
-    () =>
-      resultView === "raw"
-        ? rawResultRows.length
-          ? rawResultRows
-          : lastResult
-        : lastResult,
-    [resultView, rawResultRows, lastResult],
-  );
+  const displayedRows = useMemo(() => {
+    // When lazy preview is active, return the accumulated preview rows
+    if (lazyPreviewState && activeResultTabId === "all-columns") {
+      return lazyPreviewState.rows;
+    }
+    return resultView === "raw"
+      ? rawResultRows.length
+        ? rawResultRows
+        : lastResult
+      : lastResult;
+  }, [
+    resultView,
+    rawResultRows,
+    lastResult,
+    lazyPreviewState,
+    activeResultTabId,
+  ]);
 
   const exportSql = useMemo(() => {
+    const stripTrailingLimit = (sql: string) =>
+      sql.replace(/\s+LIMIT\s+\d+\s*;?\s*$/i, "").trim();
+
+    if (!limitEnabled) {
+      // Always produce a limitless SQL when the result limit toggle is off
+      if (activeResultTab?.selection && datasourceContext?.fromClauseSql) {
+        return buildQueryFromSelection(
+          { ...activeResultTab.selection, limit: -1 },
+          datasourceContext.fromClauseSql,
+          [],
+        );
+      }
+      if (datasourceContext?.fromClauseSql) {
+        if (activeResultTab?.query) {
+          return stripTrailingLimit(activeResultTab.query);
+        }
+        return buildQueryFromSelection(
+          { ...selection, limit: -1 },
+          datasourceContext.fromClauseSql,
+          filters,
+        );
+      }
+      if (lastQuery) {
+        return stripTrailingLimit(lastQuery);
+      }
+      return "";
+    }
+
     if (lastQuery) {
       return lastQuery;
     }
@@ -2425,6 +2585,7 @@ FROM (\n${selectStatements.join(
     }
     return "";
   }, [
+    limitEnabled,
     lastQuery,
     activeResultTab,
     datasourceContext?.fromClauseSql,
@@ -2565,8 +2726,31 @@ FROM (\n${selectStatements.join(
                     onAddUrlDatasource={addUrlDatasource}
                     onDeleteDatasource={(id) => {
                       const ok = unregisterFile(id);
-                      if (ok && selectedDatasourceId === id) {
+                      if (!ok) {
+                        return;
+                      }
+
+                      const referencedDatasourceId =
+                        extractLocalDatasourceIdFromSql(editorSql);
+                      const shouldClearQuery =
+                        selectedDatasourceId === id ||
+                        referencedDatasourceId === id;
+
+                      if (shouldClearQuery) {
+                        suppressDatasourceAutoSelectRef.current = true;
                         setSelectedDatasourceId("");
+                        setSelection(
+                          getDefaultQuerySelection(queryBuilderModel),
+                        );
+                        setFilters([]);
+                        setEditorSqlSeed("");
+                        setRawResultRows([]);
+                        setRawResultSql("");
+                        setResultTabs(getInitialResultTabs());
+                        setActiveResultTabId("main");
+                        setResultView("raw");
+                        setActiveMainTab("pivot");
+                        resetRuntimeState();
                       }
                     }}
                     fileInputRef={fileInputRef}
@@ -2905,6 +3089,8 @@ FROM (\n${selectStatements.join(
                     columns={filteredColumns}
                     filters={filteredFilters}
                     filterAliasOptionsByColumn={filterAliasOptionsByColumn}
+                    filterDimensionTokenByAlias={filterDimensionTokenByAlias}
+                    querySql={sql}
                     searchQuery={drawerSearch}
                     fromClauseSql={datasourceContext?.fromClauseSql}
                     datasourceId={selectedDatasourceId}
@@ -3211,9 +3397,16 @@ FROM (\n${selectStatements.join(
               activeColumnSortPriority={activeColumnSortPriority}
               onPivotRowHeaderSortChange={handlePivotRowHeaderSortChange}
               onPivotColumnHeaderSortChange={handlePivotColumnHeaderSortChange}
+              includeSubtotals={Boolean(activePivotSelection?.includeSubtotals)}
+              onTogglePivotSubtotals={handlePivotSubtotalsToggle}
               datasourceFromClauseSql={datasourceContext?.fromClauseSql}
               runQueryAndSyncEditor={runQueryAndSyncEditor}
               lastQuery={lastQuery}
+              lazyPreviewHasMore={
+                lazyPreviewState?.hasMore === true &&
+                activeResultTabId === "all-columns"
+              }
+              onLoadMorePreview={handleLoadMorePreview}
             />
           </div>
         </main>
@@ -3230,6 +3423,7 @@ FROM (\n${selectStatements.join(
         rows={displayedRows}
         querySql={exportSql}
         datasourceId={selectedDatasourceId}
+        limitEnabled={limitEnabled}
       />
       <Toaster />
     </div>

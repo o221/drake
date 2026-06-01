@@ -19,6 +19,8 @@ export type FilterType =
   | "NULL"
   | "NOT_NULL";
 
+export type FilterConjunction = "AND" | "OR";
+
 export interface FilterExpression {
   id: string;
   column: string;
@@ -27,6 +29,7 @@ export interface FilterExpression {
   values: string[];
   onAggregates: boolean;
   aggregateAlias?: string;
+  conjunction?: FilterConjunction;
 }
 
 export interface QueryModel {

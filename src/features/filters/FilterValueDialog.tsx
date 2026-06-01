@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Loader2, Check, Minus } from "lucide-react";
 import { useDuckDbRuntime } from "@/features/runtime/useDuckDbRuntime";
+import { resolveDimensionValueExpression } from "@/features/query/querySql";
 import type { DataSourceColumn, FilterExpression } from "@/types";
 
 function quoteIdentifier(identifier: string): string {
@@ -21,6 +22,10 @@ interface FilterValueDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   column: DataSourceColumn;
+  filterLabel?: string;
+  dimensionValueToken?: string;
+  querySql?: string;
+  queryValueAlias?: string;
   fromClauseSql?: string;
   datasourceId?: string;
   currentFilter?: FilterExpression;
@@ -58,12 +63,17 @@ export default function FilterValueDialog({
   isOpen,
   onOpenChange,
   column,
+  filterLabel,
+  dimensionValueToken,
+  querySql,
+  queryValueAlias,
   fromClauseSql,
   datasourceId,
   currentFilter,
   onApply,
 }: FilterValueDialogProps) {
   const { runQuery } = useDuckDbRuntime();
+  const effectiveFilterLabel = filterLabel ?? queryValueAlias ?? column.name;
   const [values, setValues] = useState<string[]>([]);
   const [selectedValues, setSelectedValues] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -71,7 +81,7 @@ export default function FilterValueDialog({
   const [sortSelectedToTop, setSortSelectedToTop] = useState(false);
 
   useEffect(() => {
-    if (isOpen && fromClauseSql) {
+    if (isOpen && (fromClauseSql || querySql)) {
       void loadDistinctValues();
     }
     if (isOpen && currentFilter) {
@@ -80,15 +90,70 @@ export default function FilterValueDialog({
       setSelectedValues(new Set());
     }
     setSortSelectedToTop(false);
-  }, [isOpen, fromClauseSql, column.name, currentFilter, datasourceId]);
+  }, [
+    isOpen,
+    fromClauseSql,
+    querySql,
+    queryValueAlias,
+    dimensionValueToken,
+    column.name,
+    currentFilter,
+    datasourceId,
+  ]);
 
   async function loadDistinctValues() {
     setLoading(true);
     try {
+      if (fromClauseSql && dimensionValueToken) {
+        const aliasMatch = fromClauseSql.match(
+          /\bas\s+("([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/i,
+        );
+        const alias = aliasMatch
+          ? (aliasMatch[2] ?? aliasMatch[3])
+          : "__drake_data_foundation";
+        const quotedAlias = `"${alias}"`;
+        const valueExpr = resolveDimensionValueExpression(
+          dimensionValueToken,
+          quotedAlias,
+        );
+        const sql = `SELECT DISTINCT ${valueExpr} AS val FROM ${fromClauseSql} ORDER BY 1 LIMIT 1000`;
+        const result = await runQuery(sql, { isInternal: true, datasourceId });
+        if (result && Array.isArray(result)) {
+          const uniqueDisplayValues = Array.from(
+            new Set(result.map((row) => String(row.val ?? ""))),
+          );
+          setValues(uniqueDisplayValues);
+        }
+        return;
+      }
+
+      const effectiveQueryValueAlias =
+        (currentFilter?.onAggregates
+          ? currentFilter.aggregateAlias
+          : undefined) ?? queryValueAlias;
+
+      if (querySql && effectiveQueryValueAlias) {
+        const trimmedQuerySql = querySql.trim().replace(/;$/, "");
+        const valueAlias = quoteIdentifier(effectiveQueryValueAlias);
+        const sql = `SELECT DISTINCT ${valueAlias} AS val FROM (${trimmedQuerySql}) AS __drake_filter_values ORDER BY 1 LIMIT 1000`;
+        const result = await runQuery(sql, { isInternal: true, datasourceId });
+        if (result && Array.isArray(result)) {
+          const uniqueDisplayValues = Array.from(
+            new Set(result.map((row) => String(row.val ?? ""))),
+          );
+          setValues(uniqueDisplayValues);
+        }
+        return;
+      }
+
       // Use the helper to run a specific query for distinct values
       // Extract alias from fromClauseSql (e.g. "_abc")
-      const aliasMatch = fromClauseSql?.match(/\bas\s+("([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/i);
-      const alias = aliasMatch ? (aliasMatch[2] ?? aliasMatch[3]) : "__drake_data_foundation";
+      const aliasMatch = fromClauseSql?.match(
+        /\bas\s+("([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/i,
+      );
+      const alias = aliasMatch
+        ? (aliasMatch[2] ?? aliasMatch[3])
+        : "__drake_data_foundation";
       const quotedAlias = `"${alias}"`;
       const distinctExpr = resolveDistinctValueExpression(
         quotedAlias,
@@ -98,7 +163,9 @@ export default function FilterValueDialog({
       const sql = `SELECT DISTINCT ${distinctExpr} as val FROM ${fromClauseSql} ORDER BY 1 LIMIT 1000`;
       const result = await runQuery(sql, { isInternal: true, datasourceId });
       if (result && Array.isArray(result)) {
-        const uniqueDisplayValues = Array.from(new Set(result.map((row) => String(row.val ?? ""))));
+        const uniqueDisplayValues = Array.from(
+          new Set(result.map((row) => String(row.val ?? ""))),
+        );
         setValues(uniqueDisplayValues);
       }
     } catch (err) {
@@ -108,7 +175,9 @@ export default function FilterValueDialog({
     }
   }
 
-  const filteredValues = values.filter((v) => v.toLowerCase().includes(search.toLowerCase()));
+  const filteredValues = values.filter((v) =>
+    v.toLowerCase().includes(search.toLowerCase()),
+  );
   const sortedFilteredValues = sortSelectedToTop
     ? [...filteredValues].sort((a, b) => {
         const aSelected = selectedValues.has(a);
@@ -124,7 +193,8 @@ export default function FilterValueDialog({
     0,
   );
   const allFilteredSelected =
-    filteredValues.length > 0 && selectedFilteredCount === filteredValues.length;
+    filteredValues.length > 0 &&
+    selectedFilteredCount === filteredValues.length;
   const partiallyFilteredSelected =
     selectedFilteredCount > 0 && selectedFilteredCount < filteredValues.length;
 
@@ -165,9 +235,9 @@ export default function FilterValueDialog({
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px] flex flex-col max-h-[80vh]">
         <DialogHeader>
-          <DialogTitle>Filter: {column.name}</DialogTitle>
+          <DialogTitle>Filter: {effectiveFilterLabel}</DialogTitle>
           <DialogDescription>
-            Search and select values for the {column.name} filter.
+            Search and select values for the {effectiveFilterLabel} filter.
           </DialogDescription>
         </DialogHeader>
 
@@ -194,7 +264,9 @@ export default function FilterValueDialog({
           <Checkbox
             id="sort-selected-to-top"
             checked={sortSelectedToTop}
-            onCheckedChange={(checked) => setSortSelectedToTop(Boolean(checked))}
+            onCheckedChange={(checked) =>
+              setSortSelectedToTop(Boolean(checked))
+            }
           />
           <label htmlFor="sort-selected-to-top" className="cursor-pointer">
             Sort selected to top
@@ -231,7 +303,10 @@ export default function FilterValueDialog({
 
               {search.trim() && selectedValues.size > 0 ? (
                 <label className="flex items-center gap-2 p-1.5 hover:bg-accent rounded-sm cursor-pointer text-sm border-b">
-                  <Checkbox checked={false} onCheckedChange={addFilteredToSelection} />
+                  <Checkbox
+                    checked={false}
+                    onCheckedChange={addFilteredToSelection}
+                  />
                   <span className="truncate">Add to previous selection</span>
                 </label>
               ) : null}
@@ -245,7 +320,9 @@ export default function FilterValueDialog({
                     checked={selectedValues.has(val)}
                     onCheckedChange={() => toggleValue(val)}
                   />
-                  <span className="truncate">{val === "" ? "(blank)" : val}</span>
+                  <span className="truncate">
+                    {val === "" ? "(blank)" : val}
+                  </span>
                 </label>
               ))}
             </>
