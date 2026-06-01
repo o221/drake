@@ -56,7 +56,6 @@ import { useSettings } from "@/features/settings/useSettings";
 import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import type { DataSourceColumn, FilterExpression } from "@/types";
-
 interface WorkspacePreset extends QueryPresetItem {
   selection: QueryBuilderSelection;
   filters: FilterExpression[];

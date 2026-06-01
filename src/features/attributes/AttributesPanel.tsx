@@ -34,10 +34,12 @@ interface AttributesPanelProps {
 
 type DimensionFunctionArgKind =
   | "char"
+  | "split_extract"
   | "number"
   | "range"
   | "format"
-  | "age_part";
+  | "age_part"
+  | "replace_pair";
 
 type DimensionFunctionItem = {
   key: string;
@@ -164,7 +166,18 @@ export default function AttributesPanel({
     { key: "length", label: "Length" },
     { key: "bar", label: "Bar" },
     { key: "reverse", label: "Reverse" },
-    { key: "split", label: "Split", defaultArg: ",", argKind: "char" },
+    {
+      key: "split",
+      label: "Split",
+      defaultArg: ",=>1",
+      argKind: "split_extract",
+    },
+    {
+      key: "replace",
+      label: "Replace",
+      defaultArg: "=>",
+      argKind: "replace_pair",
+    },
     { key: "left", label: "Left", defaultArg: "1", argKind: "number" },
     { key: "right", label: "Right", defaultArg: "1", argKind: "number" },
     { key: "string", label: "String", defaultArg: "1:10", argKind: "range" },
@@ -1027,30 +1040,69 @@ export default function AttributesPanel({
                                     ? ""
                                     : item.argKind === "char"
                                       ? (argValue || " ").slice(0, 1)
-                                      : item.argKind === "number"
-                                        ? `${Math.max(1, Math.floor(Number(argValue) || 1))}`
-                                        : item.argKind === "range"
-                                          ? argValue || "1:10"
-                                          : item.argKind === "format"
-                                            ? (argValue || "").trim() ||
-                                              "YY-MM-DD"
-                                            : item.argKind === "age_part"
+                                      : item.argKind === "split_extract"
+                                        ? (() => {
+                                            const raw = argValue || ",=>1";
+                                            const delimiterIndex =
+                                              raw.indexOf("=>");
+                                            const delimiter =
+                                              delimiterIndex >= 0
+                                                ? raw.slice(0, delimiterIndex)
+                                                : raw;
+                                            const indexRaw =
+                                              delimiterIndex >= 0
+                                                ? raw.slice(delimiterIndex + 2)
+                                                : "1";
+                                            const index = Math.max(
+                                              1,
+                                              Math.floor(
+                                                Number(indexRaw || "1") || 1,
+                                              ),
+                                            );
+                                            return `${delimiter}=>${index}`;
+                                          })()
+                                        : item.argKind === "number"
+                                          ? `${Math.max(1, Math.floor(Number(argValue) || 1))}`
+                                          : item.argKind === "range"
+                                            ? argValue || "1:10"
+                                            : item.argKind === "replace_pair"
                                               ? (() => {
-                                                  const normalized = (
-                                                    argValue || "year"
-                                                  )
-                                                    .trim()
-                                                    .toLowerCase();
-                                                  if (
-                                                    normalized === "year" ||
-                                                    normalized === "month" ||
-                                                    normalized === "day"
-                                                  ) {
-                                                    return normalized;
+                                                  const raw = argValue || "=>";
+                                                  const delimiterIndex =
+                                                    raw.indexOf("=>");
+                                                  if (delimiterIndex < 0) {
+                                                    return `${raw}=>`;
                                                   }
-                                                  return "year";
+                                                  const fromArg = raw.slice(
+                                                    0,
+                                                    delimiterIndex,
+                                                  );
+                                                  const toArg = raw.slice(
+                                                    delimiterIndex + 2,
+                                                  );
+                                                  return `${fromArg}=>${toArg}`;
                                                 })()
-                                              : "";
+                                              : item.argKind === "format"
+                                                ? (argValue || "").trim() ||
+                                                  "YY-MM-DD"
+                                                : item.argKind === "age_part"
+                                                  ? (() => {
+                                                      const normalized = (
+                                                        argValue || "year"
+                                                      )
+                                                        .trim()
+                                                        .toLowerCase();
+                                                      if (
+                                                        normalized === "year" ||
+                                                        normalized ===
+                                                          "month" ||
+                                                        normalized === "day"
+                                                      ) {
+                                                        return normalized;
+                                                      }
+                                                      return "year";
+                                                    })()
+                                                  : "";
                                 const encodedColumn = encodeURIComponent(
                                   col.name,
                                 );
@@ -1089,14 +1141,59 @@ export default function AttributesPanel({
                                         )
                                       : axisDimensions.includes(token);
 
+                                const allowRepeatedChain =
+                                  item.key === "replace" ||
+                                  item.key === "split" ||
+                                  item.key === "reverse";
                                 const disableButton =
                                   chainEnabled &&
                                   item.key !== "field" &&
+                                  !allowRepeatedChain &&
                                   selectedDerivedDimensions.some((dimension) =>
                                     getDerivedDimensionFns(dimension).includes(
                                       item.key,
                                     ),
                                   );
+
+                                const replaceDelimiterIndex =
+                                  argValue.indexOf("=>");
+                                const splitDelimiterIndex =
+                                  argValue.indexOf("=>");
+                                const splitDelimiterArg =
+                                  item.argKind === "split_extract"
+                                    ? splitDelimiterIndex >= 0
+                                      ? argValue.slice(0, splitDelimiterIndex)
+                                      : argValue
+                                    : "";
+                                const splitElementArg =
+                                  item.argKind === "split_extract"
+                                    ? splitDelimiterIndex >= 0
+                                      ? `${Math.max(
+                                          1,
+                                          Math.floor(
+                                            Number(
+                                              argValue.slice(
+                                                splitDelimiterIndex + 2,
+                                              ) || "1",
+                                            ) || 1,
+                                          ),
+                                        )}`
+                                      : "1"
+                                    : "";
+                                const replaceFromArg =
+                                  item.argKind === "replace_pair"
+                                    ? replaceDelimiterIndex >= 0
+                                      ? argValue.slice(0, replaceDelimiterIndex)
+                                      : argValue
+                                    : "";
+                                const replaceToArg =
+                                  item.argKind === "replace_pair"
+                                    ? replaceDelimiterIndex >= 0
+                                      ? argValue.slice(
+                                          replaceDelimiterIndex + 2,
+                                        )
+                                      : ""
+                                    : "";
 
                                 return (
                                   <div
@@ -1157,6 +1254,111 @@ export default function AttributesPanel({
                                         <option value="month">in Months</option>
                                         <option value="day">in Days</option>
                                       </select>
+                                    ) : item.key !== "field" &&
+                                      item.argKind === "split_extract" ? (
+                                      <div className="inline-flex items-center gap-1">
+                                        <input
+                                          value={splitDelimiterArg}
+                                          disabled={disableButton}
+                                          onChange={(event) => {
+                                            event.stopPropagation();
+                                            setFunctionArgValue(
+                                              axis,
+                                              col.name,
+                                              item,
+                                              `${event.target.value}=>${splitElementArg || "1"}`,
+                                            );
+                                          }}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          className={cn(
+                                            "rounded border bg-background px-1 py-0.5 text-[10px] outline-none w-[34px] text-center",
+                                            disableButton &&
+                                              "cursor-not-allowed opacity-60",
+                                          )}
+                                          placeholder=","
+                                        />
+                                        <input
+                                          value={splitElementArg || "1"}
+                                          disabled={disableButton}
+                                          onChange={(event) => {
+                                            event.stopPropagation();
+                                            const nextIndex = Math.max(
+                                              1,
+                                              Math.floor(
+                                                Number(event.target.value) || 1,
+                                              ),
+                                            );
+                                            setFunctionArgValue(
+                                              axis,
+                                              col.name,
+                                              item,
+                                              `${splitDelimiterArg}=>${nextIndex}`,
+                                            );
+                                          }}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          className={cn(
+                                            "rounded border bg-background px-1 py-0.5 text-[10px] outline-none w-[30px] text-center",
+                                            disableButton &&
+                                              "cursor-not-allowed opacity-60",
+                                          )}
+                                          placeholder="1"
+                                        />
+                                      </div>
+                                    ) : item.key !== "field" &&
+                                      item.argKind === "replace_pair" ? (
+                                      <div className="inline-flex items-center gap-1">
+                                        <input
+                                          value={replaceFromArg}
+                                          disabled={disableButton}
+                                          onChange={(event) => {
+                                            event.stopPropagation();
+                                            setFunctionArgValue(
+                                              axis,
+                                              col.name,
+                                              item,
+                                              `${event.target.value}=>${replaceToArg}`,
+                                            );
+                                          }}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          className={cn(
+                                            "rounded border bg-background px-1 py-0.5 text-[10px] outline-none w-[48px]",
+                                            disableButton &&
+                                              "cursor-not-allowed opacity-60",
+                                          )}
+                                          placeholder="from"
+                                        />
+                                        <span className="text-[10px] text-muted-foreground">
+                                          {"->"}
+                                        </span>
+                                        <input
+                                          value={replaceToArg}
+                                          disabled={disableButton}
+                                          onChange={(event) => {
+                                            event.stopPropagation();
+                                            setFunctionArgValue(
+                                              axis,
+                                              col.name,
+                                              item,
+                                              `${replaceFromArg}=>${event.target.value}`,
+                                            );
+                                          }}
+                                          onClick={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          className={cn(
+                                            "rounded border bg-background px-1 py-0.5 text-[10px] outline-none w-[48px]",
+                                            disableButton &&
+                                              "cursor-not-allowed opacity-60",
+                                          )}
+                                          placeholder="to"
+                                        />
+                                      </div>
                                     ) : item.key !== "field" && item.argKind ? (
                                       <input
                                         value={argValue}

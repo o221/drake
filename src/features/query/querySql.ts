@@ -471,6 +471,8 @@ function formatDerivedDimensionFnLabel(
       return `Reverse ${columnLabel}`;
     case "split":
       return `Split ${columnLabel}`;
+    case "replace":
+      return `Replace ${columnLabel}`;
     case "left":
       return `Left ${columnLabel}`;
     case "right":
@@ -587,8 +589,25 @@ function applyDerivedDimensionFunction(
     case "reverse":
       return `reverse(${textExpr})`;
     case "split": {
-      const delimiter = (rawArg || " ").slice(0, 1);
-      return `string_split(${textExpr}, ${quoteLiteral(delimiter)})`;
+      const raw = rawArg || ",=>1";
+      const delimiterIndex = raw.indexOf("=>");
+      const delimiter =
+        delimiterIndex >= 0 ? raw.slice(0, delimiterIndex) : raw;
+      const elementIndexRaw =
+        delimiterIndex >= 0 ? raw.slice(delimiterIndex + 2) : "1";
+      const elementIndex = Math.max(
+        1,
+        Math.floor(Number(elementIndexRaw || "1") || 1),
+      );
+      const resolvedDelimiter = delimiter.length ? delimiter : " ";
+      return `split_part(${textExpr}, ${quoteLiteral(resolvedDelimiter)}, ${elementIndex})`;
+    }
+    case "replace": {
+      const raw = rawArg || "=>";
+      const delimiterIndex = raw.indexOf("=>");
+      const fromArg = delimiterIndex >= 0 ? raw.slice(0, delimiterIndex) : raw;
+      const toArg = delimiterIndex >= 0 ? raw.slice(delimiterIndex + 2) : "";
+      return `replace(${textExpr}, ${quoteLiteral(fromArg)}, ${quoteLiteral(toArg)})`;
     }
     case "left": {
       const length = Math.max(1, Math.floor(Number(rawArg) || 1));

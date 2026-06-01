@@ -434,6 +434,12 @@ export default function PivotMatrix({
   const rowDividerClass = showGridLines ? "divide-x divide-border" : undefined;
   const freezeHeaderCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
   const freezeBodyCellRefs = useRef<Array<HTMLTableCellElement | null>>([]);
+  const freezeHeaderSpanCellRefs = useRef<
+    Record<
+      string,
+      { element: HTMLTableCellElement; start: number; span: number }
+    >
+  >({});
   const [rowHeaderLeftOffsets, setRowHeaderLeftOffsets] = useState<number[]>(
     [],
   );
@@ -859,6 +865,16 @@ export default function PivotMatrix({
       freezeBodyCellRefs.current[index] = element;
     };
 
+  const setFreezeHeaderSpanCellRef =
+    (id: string, start: number, span: number) =>
+    (element: HTMLTableCellElement | null) => {
+      if (!element) {
+        delete freezeHeaderSpanCellRefs.current[id];
+        return;
+      }
+      freezeHeaderSpanCellRefs.current[id] = { element, start, span };
+    };
+
   useLayoutEffect(() => {
     if (!freezeRowHeaders) {
       setFreezeColumnWidths([]);
@@ -882,6 +898,26 @@ export default function PivotMatrix({
         const bodyWidth = freezeBodyCellRefs.current[index]?.offsetWidth ?? 0;
         nextWidths[index] = Math.max(headerWidth, bodyWidth);
       }
+
+      const headerSpanEntries = Object.values(freezeHeaderSpanCellRefs.current);
+      for (const entry of headerSpanEntries) {
+        if (entry.span <= 1) {
+          continue;
+        }
+        const headerSpanWidth = Math.max(
+          entry.element.offsetWidth,
+          entry.element.scrollWidth,
+        );
+        const perColumnWidth = Math.ceil(headerSpanWidth / entry.span);
+        for (
+          let index = entry.start;
+          index < entry.start + entry.span && index < totalColumnCount;
+          index += 1
+        ) {
+          nextWidths[index] = Math.max(nextWidths[index] ?? 0, perColumnWidth);
+        }
+      }
+
       if (nextWidths.some((width) => width <= 0)) {
         return;
       }
@@ -924,7 +960,10 @@ export default function PivotMatrix({
   }, [
     freezeRowHeaders,
     totalColumnCount,
+    rowHeaderColumnCount,
     denseMode,
+    sparseMode,
+    sortedRows.length,
     sortedColumns.length,
     sparklineMode,
     showUiTotals,
@@ -1919,7 +1958,7 @@ export default function PivotMatrix({
               setFreezeRowHeaders((current) => !current);
             }}
           >
-            Freeze Rows
+            Freeze Headers
           </Button>
           <Button
             type="button"
@@ -1999,6 +2038,13 @@ export default function PivotMatrix({
                               <th
                                 key={`column-axis-${columnLevelIndex}-${columnIndex}-${sortedColumns[columnIndex]}`}
                                 colSpan={span}
+                                ref={setFreezeHeaderSpanCellRef(
+                                  `axis-${columnLevelIndex}-${columnIndex}`,
+                                  rowHeaderColumnCount +
+                                    sparklineColumnCount +
+                                    columnIndex,
+                                  span,
+                                )}
                                 className="border-b px-1.5 py-1 text-left align-top font-semibold"
                               >
                                 {getColumnAxisPartLabel(
@@ -2063,13 +2109,19 @@ export default function PivotMatrix({
                         <th
                           key={`${columnLabel}-${columnIndex}`}
                           ref={
-                            span === 1
-                              ? setFreezeHeaderCellRef(
+                            span > 1
+                              ? setFreezeHeaderSpanCellRef(
+                                  `measure-${columnIndex}`,
+                                  rowHeaderColumnCount +
+                                    sparklineColumnCount +
+                                    columnIndex,
+                                  span,
+                                )
+                              : setFreezeHeaderCellRef(
                                   rowHeaderColumnCount +
                                     sparklineColumnCount +
                                     columnIndex,
                                 )
-                              : undefined
                           }
                           colSpan={span}
                           className={
