@@ -1,28 +1,18 @@
 import {
-  Key,
-  Origami,
-  PanelLeft,
-  Search,
-  Settings2,
-  Play,
-  Zap,
-  Trash2,
-  ChevronRight,
-  ChevronDown,
-  Eraser,
-  BookmarkPlus,
-} from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import { useToast } from "@/hooks/use-toast";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DrawerSection } from "@/components/shell/WorkspaceShellDrawerSection";
+import WorkspaceShellHeader from "@/components/shell/WorkspaceShellHeader";
+import WorkspaceMainTabs from "@/components/shell/WorkspaceMainTabs";
+import WorkspaceShellDrawer from "@/components/shell/WorkspaceShellDrawer";
 import WorkspaceResultsPanel from "@/components/shell/WorkspaceResultsPanel";
-import AttributesPanel from "@/features/attributes/AttributesPanel";
-import DataSourcesPanel from "@/features/datasources/DataSourcesPanel";
+import { useWorkspaceHistoryPresets } from "@/components/shell/useWorkspaceHistoryPresets";
+import { buildTableMeasurePivotSql } from "@/components/shell/workspaceTableMeasureSql";
 import type {
   DataSourceItem,
   UrlDataSourceInput,
@@ -32,20 +22,17 @@ import {
   getDatasourceQueryContext,
 } from "@/features/datasources/dataSourcesAdapter";
 import { useDataSources } from "@/features/datasources/useDataSources";
-import FiltersPanel from "@/features/filters/FiltersPanel";
-import QueryBuilderPanel from "@/features/query/QueryBuilderPanel";
 import {
   buildQueryBuilderModel,
   buildQueryFromSelection,
   deriveMeasureAliases,
   getDefaultQuerySelection,
   getDimensionDisplayLabel,
-  reverseParseQueryFromSql,
   type QueryBuilderSelection,
 } from "@/features/query/querySql";
-import SqlEditor, {
-  type QueryPresetItem,
-  type QueryHistoryItem,
+import type {
+  QueryPresetItem,
+  QueryHistoryItem,
 } from "@/features/query/SqlEditor";
 import ExportResultsDialog from "@/features/runtime/ExportResultsDialog";
 import type { QueryRow } from "@/features/runtime/duckdbRuntime";
@@ -54,12 +41,13 @@ import SecretsDialog from "@/features/settings/SecretsDialog";
 import SettingsDialog from "@/features/settings/SettingsDialog";
 import { useSettings } from "@/features/settings/useSettings";
 import { Toaster } from "@/components/ui/toaster";
-import { cn } from "@/lib/utils";
 import type { DataSourceColumn, FilterExpression } from "@/types";
 interface WorkspacePreset extends QueryPresetItem {
   selection: QueryBuilderSelection;
   filters: FilterExpression[];
 }
+
+type WorkspaceResultsPanelProps = ComponentProps<typeof WorkspaceResultsPanel>;
 
 const QUERY_PRESETS_STORAGE_KEY = "drake-react.queryPresets";
 
@@ -196,6 +184,79 @@ function buildAliasRemapByColumn(
   }
 
   return remapByColumn;
+}
+
+const TEXT_DIMENSION_TOKEN_PREFIXES = [
+  "__fn__|uppercase|",
+  "__fn__|lowercase|",
+  "__fn__|length|",
+  "__fn__|bar|",
+  "__fn__|reverse|",
+  "__fn__|split|",
+  "__fn__|left|",
+  "__fn__|right|",
+  "__fn__|string|",
+] as const;
+
+function isTextColumnType(type: string): boolean {
+  return /char|varchar|string|text|uuid/i.test(type || "");
+}
+
+function getDefaultDimensionArg(prefix: string): string {
+  if (prefix.includes("split|")) {
+    return " ";
+  }
+  if (prefix.includes("left|") || prefix.includes("right|")) {
+    return "1";
+  }
+  if (prefix.includes("string|")) {
+    return "1:10";
+  }
+  return "";
+}
+
+function buildOrderedDimensionTokens(
+  columnName: string,
+  columnType: string,
+): string[] {
+  if (!isTextColumnType(columnType)) {
+    return [columnName];
+  }
+
+  const encodedColumn = encodeURIComponent(columnName);
+  const functionTokens = TEXT_DIMENSION_TOKEN_PREFIXES.map((prefix) => {
+    const defaultArg = getDefaultDimensionArg(prefix);
+    return `${prefix}${encodedColumn}|${encodeURIComponent(defaultArg)}`;
+  });
+  return [columnName, ...functionTokens];
+}
+
+function toggleDimensionTokens(
+  source: string[],
+  orderedTokens: string[],
+  isCtrl: boolean,
+): string[] {
+  const selectedInOrder = orderedTokens.filter((token) =>
+    source.includes(token),
+  );
+
+  if (isCtrl) {
+    const nextToAdd = orderedTokens.find((token) => !source.includes(token));
+    if (!nextToAdd) {
+      return source;
+    }
+    return [...source, nextToAdd];
+  }
+
+  if (selectedInOrder.length > 0) {
+    const nextToRemove = selectedInOrder[selectedInOrder.length - 1];
+    const lastIndex = source.lastIndexOf(nextToRemove);
+    const nextValues = [...source];
+    nextValues.splice(lastIndex, 1);
+    return nextValues;
+  }
+
+  return [...source, orderedTokens[0]];
 }
 
 const URL_STATE_HASH_KEY = "drake";
@@ -1051,6 +1112,271 @@ export default function WorkspaceShellModern() {
     [drawerSearch, filters],
   );
 
+  const datasourceSummary = useMemo(
+    () => ({
+      total: filteredDatasources.length,
+      countsByType: filteredDatasources.reduce<Record<string, number>>(
+        (acc, item) => {
+          acc[item.type] = (acc[item.type] ?? 0) + 1;
+          return acc;
+        },
+        {},
+      ),
+    }),
+    [filteredDatasources],
+  );
+
+  const handleToggleDrawerSection = (
+    section: "sources" | "attributes" | "filters",
+  ) => {
+    setDrawerSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }));
+  };
+
+  const handleDrawerSelectDatasource = (id: string) => {
+    setSelectedDatasourceId(id);
+    setDrawerSections((current) => ({
+      ...current,
+      sources: false,
+    }));
+  };
+
+  const handleDrawerRegisterFile = async (file: File) => {
+    const name = await registerFile(file);
+    setSelectedDatasourceId(name);
+    if (
+      pendingHistoryItem?.datasourceId &&
+      pendingHistoryItem.datasourceId.toLowerCase() === name.toLowerCase()
+    ) {
+      const pendingItem = pendingHistoryItem;
+      setPendingHistoryItem(null);
+      await handleLoadHistory(pendingItem);
+    }
+  };
+
+  const handleDrawerDeleteDatasource = (id: string) => {
+    const ok = unregisterFile(id);
+    if (!ok) {
+      return;
+    }
+
+    const referencedDatasourceId = extractLocalDatasourceIdFromSql(editorSql);
+    const shouldClearQuery =
+      selectedDatasourceId === id || referencedDatasourceId === id;
+
+    if (shouldClearQuery) {
+      suppressDatasourceAutoSelectRef.current = true;
+      setSelectedDatasourceId("");
+      setSelection(getDefaultQuerySelection(queryBuilderModel));
+      setFilters([]);
+      setEditorSqlSeed("");
+      setRawResultRows([]);
+      setRawResultSql("");
+      setResultTabs(getInitialResultTabs());
+      setActiveResultTabId("main");
+      setResultView("raw");
+      setActiveMainTab("pivot");
+      resetRuntimeState();
+    }
+  };
+
+  const handleDrawerSelectDimension = (columnName: string, isCtrl: boolean) => {
+    const column = datasourceColumns.find((item) => item.name === columnName);
+    const orderedTokens = buildOrderedDimensionTokens(
+      columnName,
+      column?.type || "",
+    );
+    setSelection((current) => {
+      const nextRows = toggleDimensionTokens(
+        current.rowDimensions,
+        orderedTokens,
+        isCtrl,
+      );
+      if (nextRows === current.rowDimensions) {
+        return current;
+      }
+      return {
+        ...current,
+        rowDimensions: nextRows,
+      };
+    });
+  };
+
+  const handleDrawerSelectColumnDimension = (
+    columnName: string,
+    isCtrl: boolean,
+  ) => {
+    const column = datasourceColumns.find((item) => item.name === columnName);
+    const orderedTokens = buildOrderedDimensionTokens(
+      columnName,
+      column?.type || "",
+    );
+    setSelection((current) => {
+      const nextCols = toggleDimensionTokens(
+        current.columnDimensions,
+        orderedTokens,
+        isCtrl,
+      );
+      if (nextCols === current.columnDimensions) {
+        return current;
+      }
+      return {
+        ...current,
+        columnDimensions: nextCols,
+      };
+    });
+  };
+
+  const handleDrawerSelectMeasure = (columnName: string, isCtrl: boolean) => {
+    const column = datasourceColumns.find((item) => item.name === columnName);
+    const columnType = column?.type || "";
+    const isNumericType =
+      /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
+        columnType,
+      );
+    const isTextType = /char|varchar|string|text|uuid/i.test(columnType);
+    const isTemporalType = /date|time/i.test(columnType);
+    const supportsMeasureFn = (fnKey: string): boolean => {
+      if (
+        fnKey === "geomean" ||
+        fnKey === "kurtosis" ||
+        fnKey === "mad" ||
+        fnKey === "skewness" ||
+        fnKey === "stdev" ||
+        fnKey === "variance"
+      ) {
+        return isNumericType;
+      }
+      if (
+        fnKey === "histogram" ||
+        fnKey === "list" ||
+        fnKey === "unique_values"
+      ) {
+        return isNumericType || isTextType || isTemporalType;
+      }
+      if (fnKey === "entropy" || fnKey === "median" || fnKey === "mode") {
+        return isNumericType || isTextType || isTemporalType;
+      }
+      if (fnKey === "count" || fnKey === "count_distinct") {
+        return true;
+      }
+      if (fnKey === "sum" || fnKey === "avg") {
+        return isNumericType;
+      }
+      if (fnKey === "min" || fnKey === "max") {
+        return isNumericType || isTemporalType || isTextType;
+      }
+      return false;
+    };
+
+    const orderedFns = [
+      "sum",
+      "count",
+      "count_distinct",
+      "avg",
+      "entropy",
+      "kurtosis",
+      "mad",
+      "min",
+      "max",
+      "median",
+      "mode",
+      "skewness",
+      "stdev",
+      "variance",
+      "geomean",
+      "histogram",
+      "list",
+      "unique_values",
+    ].filter((fnKey) => supportsMeasureFn(fnKey));
+
+    setSelection((current) => {
+      const measureFnsForColumn = new Set(
+        current.measures
+          .map((m) => {
+            if (!m || m === "count:*") return null;
+            const [base] = m.split("|");
+            const parts = base.split(":");
+            if (parts[1] !== columnName) {
+              return null;
+            }
+            return parts[0] === "distinct_count" ? "count_distinct" : parts[0];
+          })
+          .filter((m): m is string => Boolean(m)),
+      );
+      const selectedFnsOrdered = orderedFns.filter((fnKey) =>
+        measureFnsForColumn.has(fnKey),
+      );
+      const nextToAdd = orderedFns.find(
+        (fnKey) => !measureFnsForColumn.has(fnKey),
+      );
+
+      const appendMeasure = (fnKey: string) => {
+        const key = `${fnKey}:${columnName}`;
+        if (current.measures.includes(key)) {
+          return current;
+        }
+        return {
+          ...current,
+          measures: [...current.measures, key],
+        };
+      };
+
+      const removeMeasure = (fnKey: string) => {
+        let lastIndex = -1;
+        for (let index = current.measures.length - 1; index >= 0; index -= 1) {
+          const measure = current.measures[index];
+          if (!measure || measure === "count:*") {
+            continue;
+          }
+          const [base] = measure.split("|");
+          const parts = base.split(":");
+          const normalized =
+            parts[0] === "distinct_count" ? "count_distinct" : parts[0];
+          if (parts[1] === columnName && normalized === fnKey) {
+            lastIndex = index;
+            break;
+          }
+        }
+        if (lastIndex === -1) {
+          return current;
+        }
+        const nextMeasures = [...current.measures];
+        nextMeasures.splice(lastIndex, 1);
+        return { ...current, measures: nextMeasures };
+      };
+
+      if (isCtrl) {
+        if (!nextToAdd) {
+          return current;
+        }
+        return appendMeasure(nextToAdd);
+      }
+
+      if (selectedFnsOrdered.length > 0) {
+        const nextToRemove = selectedFnsOrdered[selectedFnsOrdered.length - 1];
+        return removeMeasure(nextToRemove);
+      }
+
+      if (!nextToAdd) {
+        return current;
+      }
+      return appendMeasure(nextToAdd);
+    });
+  };
+
+  const handleDrawerRemoveFilter = (id: string) => {
+    setFilters((current) => current.filter((filter) => filter.id !== id));
+  };
+
+  const handleDrawerUpdateFilter = (updated: FilterExpression) => {
+    setFilters((current) =>
+      current.map((filter) => (filter.id === updated.id ? updated : filter)),
+    );
+  };
+
   const filterAliasOptionsByColumn = useMemo(() => {
     const map = new Map<string, Set<string>>();
 
@@ -1162,30 +1488,6 @@ export default function WorkspaceShellModern() {
     [drawerSearch, presets],
   );
 
-  const loadedPresets = useMemo(
-    () =>
-      presets.filter((preset) =>
-        datasources.some((item) => item.id === preset.datasourceId),
-      ),
-    [datasources, presets],
-  );
-
-  const filteredPresets = useMemo(
-    () =>
-      presets.filter((preset) =>
-        `${preset.name} ${preset.sql} ${preset.datasourceId}`
-          .toLowerCase()
-          .includes(presetQuery.toLowerCase()),
-      ),
-    [presetQuery, presets],
-  );
-
-  useEffect(() => {
-    if (activeMainTab === "presets" && presets.length === 0) {
-      setActiveMainTab("pivot");
-    }
-  }, [activeMainTab, presets.length]);
-
   const processingChip = useMemo(() => {
     if (!selectedDatasourceId) {
       return {
@@ -1245,202 +1547,49 @@ export default function WorkspaceShellModern() {
     resultView,
   ]);
 
-  const handleSavePreset = (bookmark: QueryPresetItem) => {
-    const nextPreset: WorkspacePreset = {
-      ...bookmark,
-      selection: bookmark.selection ?? selection,
-      filters: bookmark.filters ?? filters,
-    };
-    setPresets((current) => [nextPreset, ...current]);
-  };
-
-  const handleSavePresetClick = () => {
-    const name = window
-      .prompt("Save bookmark name", `Bookmark ${presets.length + 1}`)
-      ?.trim();
-    if (!name) {
-      return;
-    }
-    const nextPreset: WorkspacePreset = {
-      id: createId(),
-      name,
-      sql: editorSql,
-      datasourceId: selectedDatasourceId,
-      createdAt: new Date().toISOString(),
-      timestamp: new Date().toISOString(),
-      selection,
-      filters,
-    };
-    setPresets((current) => [nextPreset, ...current]);
-  };
-
-  const handleLoadPreset = (preset: QueryPresetItem) => {
-    void handleLoadHistory({
-      ...preset,
-      timestamp: preset.timestamp ?? preset.createdAt,
-    });
-  };
-
-  const handleLoadHistory = async (
-    historyItem: QueryHistoryItem,
-    options?: { openFileDialogIfMissing?: boolean },
-  ): Promise<boolean> => {
-    setDrawerOpen(true);
-    setDrawerSections({ sources: true, attributes: true, filters: true });
-    isLoadingPresetRef.current = true;
-    isLoadingHistoryRef.current = true;
-    setSelection(getDefaultQuerySelection(queryBuilderModel));
-    setFilters([]);
-    setEditorSqlSeed("");
-    setResultTabs(getInitialResultTabs());
-    setActiveResultTabId("main");
-    setResultView("raw");
-    setActiveMainTab("pivot");
-    resetRuntimeState();
-    setRawResultRows([]);
-    setRawResultSql("");
-    lastAutoRunSql.current = null;
-
-    const inferredDatasourceId =
-      historyItem.datasourceId ??
-      ((): string | null => {
-        const fileMatch =
-          /read_(csv_auto|parquet|json)\(\s*(['"])([^'"\)]+)\2\s*\)/i.exec(
-            historyItem.sql,
-          );
-        if (fileMatch) {
-          const path = fileMatch[3];
-          try {
-            const url = new URL(path);
-            if (url.protocol === "http:" || url.protocol === "https:") {
-              return `web:${fileMatch[1].toLowerCase()}:${path}`;
-            }
-          } catch {
-            // local file path
-          }
-          return path;
-        }
-
-        const fromMatch =
-          /from\s+(?:read_[a-zA-Z0-9_]*\(|)(['"])([^'"\)]+)\1/i.exec(
-            historyItem.sql,
-          );
-        if (!fromMatch) {
-          return null;
-        }
-
-        const path = fromMatch[2];
-        try {
-          const url = new URL(path);
-          if (url.protocol === "http:" || url.protocol === "https:") {
-            return `web:csv:${path}`;
-          }
-        } catch {
-          // local file path
-        }
-        return path;
-      })();
-
-    const historyItemWithDatasourceId = inferredDatasourceId
-      ? { ...historyItem, datasourceId: inferredDatasourceId }
-      : historyItem;
-
-    const datasourceReady = await ensureHistoryDatasourceLoaded(
-      historyItemWithDatasourceId,
-      options,
-    );
-    if (!datasourceReady) {
-      isLoadingPresetRef.current = false;
-      isLoadingHistoryRef.current = false;
-      return false;
-    }
-
-    if (historyItemWithDatasourceId.datasourceId) {
-      setSelectedDatasourceId(historyItemWithDatasourceId.datasourceId);
-    }
-
-    let nextSelection = historyItem.selection;
-    let nextFilters = historyItem.filters;
-
-    if (!nextSelection || !nextFilters) {
-      const parsed = reverseParseQueryFromSql(historyItem.sql);
-      nextSelection = nextSelection ?? parsed.selection;
-      nextFilters = nextFilters ?? parsed.filters;
-    }
-
-    setSelection(nextSelection ?? selection);
-    setFilters(nextFilters ?? []);
-    setEditorSqlSeed(historyItem.sql);
-    setActiveMainTab("pivot");
-    setActiveResultTabId("main");
-    setResultView("raw");
-    setPendingHistoryItem(historyItemWithDatasourceId);
-
-    return false;
-  };
-
-  const handleDeletePreset = (presetId: string) => {
-    setPresets((current) => current.filter((preset) => preset.id !== presetId));
-  };
-
-  useEffect(() => {
-    if (!pendingHistoryItem) {
-      return;
-    }
-
-    const datasourceId = pendingHistoryItem.datasourceId;
-    if (datasourceId) {
-      if (!selectedDatasourceId) {
-        return;
-      }
-      const selectedMatchesPending =
-        selectedDatasourceId === datasourceId ||
-        selectedDatasourceId.toLowerCase() === datasourceId.toLowerCase();
-      if (!selectedMatchesPending) {
-        return;
-      }
-      if (!datasources.some((item) => item.id === selectedDatasourceId)) {
-        return;
-      }
-      if (!datasourceContext?.fromClauseSql) {
-        return;
-      }
-    }
-
-    const pending = pendingHistoryItem;
-    setPendingHistoryItem(null);
-    (async () => {
-      try {
-        const rows = await runQuery(pending.sql, {
-          datasourceId: pending.datasourceId ?? selectedDatasourceId,
-        });
-        setRawResultRows(rows ?? []);
-        setRawResultSql(pending.sql);
-      } finally {
-        isLoadingPresetRef.current = false;
-        isLoadingHistoryRef.current = false;
-      }
-    })();
-  }, [
-    pendingHistoryItem,
+  const {
+    filteredPresets,
+    handleSavePreset,
+    handleSavePresetClick,
+    handleLoadPreset,
+    handleLoadHistory,
+    handleDeletePreset,
+    handleClearAll,
+  } = useWorkspaceHistoryPresets({
+    presets,
+    setPresets,
+    presetQuery,
+    activeMainTab,
+    setActiveMainTab,
+    selection,
+    filters,
+    editorSql: editorSqlSeed || sql,
     selectedDatasourceId,
+    queryBuilderModel,
+    pendingHistoryItem,
+    setPendingHistoryItem,
     datasources,
-    datasourceContext?.fromClauseSql,
+    datasourceFromClauseSql: datasourceContext?.fromClauseSql ?? null,
     runQuery,
-  ]);
-
-  const handleClearAll = () => {
-    setSelection(getDefaultQuerySelection(queryBuilderModel));
-    setFilters([]);
-    setEditorSqlSeed("");
-    setRawResultRows([]);
-    setRawResultSql("");
-    setResultTabs(getInitialResultTabs());
-    setActiveResultTabId("main");
-    setResultView("raw");
-    setActiveMainTab("pivot");
-    resetRuntimeState();
-  };
+    ensureHistoryDatasourceLoaded,
+    createId,
+    getInitialResultTabs,
+    resetRuntimeState,
+    isLoadingPresetRef,
+    isLoadingHistoryRef,
+    lastAutoRunSql,
+    setDrawerOpen,
+    setDrawerSections,
+    setSelection,
+    setFilters,
+    setEditorSqlSeed,
+    setResultTabs,
+    setActiveResultTabId,
+    setResultView,
+    setRawResultRows,
+    setRawResultSql,
+    setSelectedDatasourceId,
+  });
 
   const handleMeasureAction = (type: string) => {
     const uiResultLimit = Number.isFinite(selection.limit)
@@ -1453,304 +1602,18 @@ export default function WorkspaceShellModern() {
       }
 
       const [, rawFns = ""] = type.split("|");
-      const fnKeys = rawFns
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean)
-        .map((value) =>
-          value === "distinct_count" ? "count_distinct" : value,
-        );
-      const uniqueFnKeys = Array.from(new Set(fnKeys));
-      if (!uniqueFnKeys.length) {
-        return;
-      }
-
-      const isNumericType = (columnType: string): boolean =>
-        /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
-          columnType || "",
-        );
-      const isTextType = (columnType: string): boolean =>
-        /char|varchar|string|text|uuid/i.test(columnType || "");
-      const isTemporalType = (columnType: string): boolean =>
-        /date|time/i.test(columnType || "");
-      const supportsFn = (columnType: string, fnKey: string): boolean => {
-        if (
-          fnKey === "geomean" ||
-          fnKey === "kurtosis" ||
-          fnKey === "mad" ||
-          fnKey === "skewness" ||
-          fnKey === "stdev" ||
-          fnKey === "variance"
-        ) {
-          return isNumericType(columnType);
-        }
-        if (
-          fnKey === "histogram" ||
-          fnKey === "list" ||
-          fnKey === "unique_values"
-        ) {
-          return (
-            isNumericType(columnType) ||
-            isTextType(columnType) ||
-            isTemporalType(columnType)
-          );
-        }
-        if (fnKey === "entropy" || fnKey === "median" || fnKey === "mode") {
-          return (
-            isNumericType(columnType) ||
-            isTextType(columnType) ||
-            isTemporalType(columnType)
-          );
-        }
-        if (fnKey === "count" || fnKey === "count_distinct") {
-          return true;
-        }
-        if (fnKey === "sum" || fnKey === "avg") {
-          return isNumericType(columnType);
-        }
-        if (fnKey === "min" || fnKey === "max") {
-          return (
-            isNumericType(columnType) ||
-            isTemporalType(columnType) ||
-            isTextType(columnType)
-          );
-        }
-        return false;
-      };
-      const quoteIdentifier = (identifier: string): string =>
-        `"${identifier.split('"').join('""')}"`;
-      const toLabel = (value: string): string => value.split("_").join(" ");
-      const quoteLiteral = (value: string): string =>
-        `'${value.replace(/'/g, "''")}'`;
-      const isNumericLikeType = (columnType?: string): boolean =>
-        /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
-          columnType || "",
-        );
-      const toTypedLiteral = (
-        columnType: string | undefined,
-        value: string,
-      ): string => {
-        if (isNumericLikeType(columnType)) {
-          const numericValue = Number(value);
-          if (Number.isFinite(numericValue)) {
-            return String(numericValue);
-          }
-        }
-        return quoteLiteral(value);
-      };
-
-      const aliasMatch = datasourceContext.fromClauseSql.match(
-        /\bas\s+("([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/i,
-      );
-      const tableAlias = aliasMatch
-        ? (aliasMatch[2] ?? aliasMatch[3] ?? "__drake_data_foundation")
-        : "__drake_data_foundation";
-      const quotedTableAlias = tableAlias.startsWith('"')
-        ? tableAlias
-        : `"${tableAlias}"`;
-
-      const columnTypeByName = datasourceColumns.reduce<Record<string, string>>(
-        (acc, column) => {
-          acc[column.name] = column.type;
-          return acc;
-        },
-        {},
-      );
-
-      const whereParts: string[] = [];
-      const havingParts: string[] = [];
-      const aggregateFilterAliases: Array<{ alias: string; expr: string }> = [];
-      filters.forEach((filter) => {
-        const col = `${quotedTableAlias}.${quoteIdentifier(filter.column)}`;
-        const columnType = filter.columnType ?? columnTypeByName[filter.column];
-        const aggregateExpr = isNumericLikeType(columnType)
-          ? `AVG(${col})`
-          : `MAX(${col})`;
-        const expr = filter.onAggregates ? aggregateExpr : col;
-
-        let predicate = "";
-        const filterExpr = filter.onAggregates
-          ? (() => {
-              const alias = `__filter_${aggregateFilterAliases.length + 1}`;
-              aggregateFilterAliases.push({ alias, expr: aggregateExpr });
-              return quoteIdentifier(alias);
-            })()
-          : expr;
-        switch (filter.type) {
-          case "INCLUDE": {
-            if (filter.values.length) {
-              const vals = filter.values.map((v) => quoteLiteral(v)).join(", ");
-              predicate = `${filterExpr} IN (${vals})`;
-            }
-            break;
-          }
-          case "EXCLUDE": {
-            if (filter.values.length) {
-              const vals = filter.values.map((v) => quoteLiteral(v)).join(", ");
-              predicate = `${filterExpr} NOT IN (${vals})`;
-            }
-            break;
-          }
-          case "LIKE": {
-            if (filter.values.length) {
-              predicate = `${filterExpr} LIKE ${quoteLiteral(`%${filter.values[0]}%`)}`;
-            }
-            break;
-          }
-          case "EQ": {
-            if (filter.values.length) {
-              predicate = `${filterExpr} = ${toTypedLiteral(columnType, filter.values[0])}`;
-            }
-            break;
-          }
-          case "GT": {
-            if (filter.values.length) {
-              predicate = `${filterExpr} > ${toTypedLiteral(columnType, filter.values[0])}`;
-            }
-            break;
-          }
-          case "GTE": {
-            if (filter.values.length) {
-              predicate = `${filterExpr} >= ${toTypedLiteral(columnType, filter.values[0])}`;
-            }
-            break;
-          }
-          case "LT": {
-            if (filter.values.length) {
-              predicate = `${filterExpr} < ${toTypedLiteral(columnType, filter.values[0])}`;
-            }
-            break;
-          }
-          case "LTE": {
-            if (filter.values.length) {
-              predicate = `${filterExpr} <= ${toTypedLiteral(columnType, filter.values[0])}`;
-            }
-            break;
-          }
-          case "BETWEEN": {
-            if (filter.values.length >= 2) {
-              predicate = `${filterExpr} BETWEEN ${toTypedLiteral(columnType, filter.values[0])} AND ${toTypedLiteral(columnType, filter.values[1])}`;
-            }
-            break;
-          }
-          case "NOT_BETWEEN": {
-            if (filter.values.length >= 2) {
-              predicate = `${filterExpr} NOT BETWEEN ${toTypedLiteral(columnType, filter.values[0])} AND ${toTypedLiteral(columnType, filter.values[1])}`;
-            }
-            break;
-          }
-          case "NULL":
-            predicate = `${filterExpr} IS NULL`;
-            break;
-          case "NOT_NULL":
-            predicate = `${filterExpr} IS NOT NULL`;
-            break;
-        }
-
-        if (!predicate) {
-          return;
-        }
-        if (filter.onAggregates) {
-          havingParts.push(predicate);
-        } else {
-          whereParts.push(predicate);
-        }
+      const built = buildTableMeasurePivotSql({
+        fromClauseSql: datasourceContext.fromClauseSql,
+        datasourceColumns,
+        filters,
+        rawFns,
       });
-      const whereClause =
-        whereParts.length > 0
-          ? `\n  WHERE ${whereParts.join("\n    AND ")}`
-          : "";
-      const havingClause =
-        havingParts.length > 0
-          ? `\n  HAVING ${havingParts.join("\n    AND ")}`
-          : "";
-
-      const eligibleColumns = datasourceColumns.filter((column) =>
-        uniqueFnKeys.some((fnKey) => supportsFn(column.type, fnKey)),
-      );
-      if (!eligibleColumns.length) {
+      if (!built) {
         return;
       }
 
-      const buildExpression = (fnKey: string, columnName: string): string => {
-        const quoted = quoteIdentifier(columnName);
-        switch (fnKey) {
-          case "sum":
-            return `SUM(${quoted})`;
-          case "avg":
-            return `AVG(${quoted})`;
-          case "entropy":
-            return `ENTROPY(${quoted})`;
-          case "geomean":
-            return `GEOMETRIC_MEAN(CASE WHEN ${quoted} > 0 THEN ${quoted} ELSE NULL END)`;
-          case "kurtosis":
-            return `KURTOSIS(${quoted})`;
-          case "mad":
-            return `MAD(${quoted})`;
-          case "min":
-            return `MIN(${quoted})`;
-          case "max":
-            return `MAX(${quoted})`;
-          case "median":
-            return `MEDIAN(${quoted})`;
-          case "mode":
-            return `MODE(${quoted})`;
-          case "skewness":
-            return `SKEWNESS(${quoted})`;
-          case "stdev":
-            return `STDDEV_SAMP(${quoted})`;
-          case "variance":
-            return `VAR_SAMP(${quoted})`;
-          case "histogram":
-            return `HISTOGRAM(${quoted})`;
-          case "list":
-            return `LIST(${quoted})`;
-          case "unique_values":
-            return `LIST(DISTINCT ${quoted})`;
-          case "count_distinct":
-            return `COUNT(DISTINCT ${quoted})`;
-          case "count":
-          default:
-            return `COUNT(${quoted})`;
-        }
-      };
-
-      const selectStatements = eligibleColumns.flatMap((column, columnIndex) =>
-        uniqueFnKeys
-          .filter((fnKey) => supportsFn(column.type, fnKey))
-          .map((fnKey, fnIndex) => {
-            const escapedField = column.name.split("'").join("''");
-            const escapedAggregate = toLabel(fnKey).split("'").join("''");
-            const filterSelect = aggregateFilterAliases.length
-              ? `, ${aggregateFilterAliases
-                  .map(
-                    (item) => `${item.expr} AS ${quoteIdentifier(item.alias)}`,
-                  )
-                  .join(", ")}`
-              : "";
-            return `  SELECT ${columnIndex} AS field_order, ${fnIndex} AS aggregate_order, '${escapedField}' AS field, '${escapedAggregate}' AS aggregate, CAST(__value AS VARCHAR) AS value\n  FROM (\n    SELECT ${buildExpression(
-              fnKey,
-              column.name,
-            )} AS __value${filterSelect}\n    FROM ${datasourceContext.fromClauseSql}${whereClause}${havingClause}\n  ) __drake_agg_${columnIndex}_${fnIndex}`;
-          }),
-      );
-
-      const pivotAggregateColumns = uniqueFnKeys
-        .map((fnKey) => {
-          const aggregateLabel = toLabel(fnKey).split("'").join("''");
-          return `MAX(CASE WHEN aggregate = '${aggregateLabel}' THEN value END) AS ${quoteIdentifier(aggregateLabel)}`;
-        })
-        .join(",\n       ");
-
-      const nextSql = `SELECT field,\n       ${pivotAggregateColumns}
-FROM (\n${selectStatements.join(
-        "\n  UNION ALL\n",
-      )}\n) __drake_table_stats\nGROUP BY field\nORDER BY MIN(field_order);`;
-
-      const label =
-        uniqueFnKeys.length === 1
-          ? `Table: ${toLabel(uniqueFnKeys[0])} Pivoted (All Fields)`
-          : "Table: Pivoted Aggregates (All Fields)";
+      const nextSql = built.sql;
+      const label = built.label;
 
       setResultTabs((prev) =>
         prev.map((tab) =>
@@ -2602,811 +2465,184 @@ FROM (\n${selectStatements.join(
     }
   }, [activeResultTabId, showPivotRowsTabs, resultView]);
 
+  const workspaceResultsPanelProps = useMemo<WorkspaceResultsPanelProps>(
+    () => ({
+      resultTabs,
+      hasTableTabResult,
+      activeResultTabId,
+      setActiveResultTabId,
+      activeResultTab,
+      setResultView,
+      resultView,
+      handleShowRaw,
+      handleShowPivot,
+      handleShowRows,
+      showPivotRowsTabs,
+      canRenderPivot,
+      runtimeStatus,
+      limitEnabled,
+      selection,
+      lastExecutionMs,
+      setIsExportDialogOpen,
+      displayedRows,
+      errorMessage,
+      rawResultRows,
+      lastResult,
+      activeRowAxisKeys,
+      activeRowAxisDimensions,
+      activeRowSortDirections,
+      activeRowSortPriority,
+      activeColumnAxisKeys,
+      activeColumnAxisDimensions,
+      activeColumnSortDirections,
+      activeColumnSortPriority,
+      onPivotRowHeaderSortChange: handlePivotRowHeaderSortChange,
+      onPivotColumnHeaderSortChange: handlePivotColumnHeaderSortChange,
+      includeSubtotals: Boolean(activePivotSelection?.includeSubtotals),
+      onTogglePivotSubtotals: handlePivotSubtotalsToggle,
+      datasourceFromClauseSql: datasourceContext?.fromClauseSql,
+      runQueryAndSyncEditor,
+      lastQuery,
+      lazyPreviewHasMore:
+        lazyPreviewState?.hasMore === true &&
+        activeResultTabId === "all-columns",
+      onLoadMorePreview: handleLoadMorePreview,
+    }),
+    [
+      resultTabs,
+      hasTableTabResult,
+      activeResultTabId,
+      activeResultTab,
+      resultView,
+      handleShowRaw,
+      handleShowPivot,
+      handleShowRows,
+      showPivotRowsTabs,
+      canRenderPivot,
+      runtimeStatus,
+      limitEnabled,
+      selection,
+      lastExecutionMs,
+      displayedRows,
+      errorMessage,
+      rawResultRows,
+      lastResult,
+      activeRowAxisKeys,
+      activeRowAxisDimensions,
+      activeRowSortDirections,
+      activeRowSortPriority,
+      activeColumnAxisKeys,
+      activeColumnAxisDimensions,
+      activeColumnSortDirections,
+      activeColumnSortPriority,
+      activePivotSelection?.includeSubtotals,
+      datasourceContext?.fromClauseSql,
+      runQueryAndSyncEditor,
+      lastQuery,
+      lazyPreviewState?.hasMore,
+      handleLoadMorePreview,
+    ],
+  );
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-gradient-to-b from-background via-background to-secondary/30 text-foreground">
-      <header className="sticky top-0 z-30 border-b bg-card/85 backdrop-blur">
-        <div className="flex h-14 w-full items-center justify-between gap-3 px-4">
-          <div className="flex items-center gap-2">
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Toggle drawer"
-              onClick={() => setDrawerOpen((current) => !current)}
-            >
-              <PanelLeft className="h-4 w-4" aria-hidden="true" />
-            </Button>
-            <div className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-sm shadow-sm">
-              <Origami
-                className="h-4 w-4 text-yellow-200 bg-black rounded-sm"
-                aria-hidden="true"
-              />
-              Drake - DuckDB React Explorer
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <span
-              className={`hidden rounded px-2 py-0.5 text-[11px] font-medium sm:inline-flex ${processingChip.className}`}
-            >
-              {processingChip.label}
-            </span>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Secrets"
-              onClick={() => setIsSecretsOpen(true)}
-            >
-              <Key className="h-4 w-4" aria-hidden="true" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Settings"
-              onClick={() => setIsSettingsOpen(true)}
-            >
-              <Settings2 className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
-      </header>
+      <WorkspaceShellHeader
+        processingChip={processingChip}
+        onToggleDrawer={() => setDrawerOpen((current) => !current)}
+        onOpenSecrets={() => setIsSecretsOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <aside
-          className={`h-full shrink-0 overflow-hidden border-r bg-card/95 backdrop-blur relative transition-[width] duration-150 ${
-            drawerOpen ? "" : "border-r-0"
-          }`}
-          style={{ width: drawerOpen ? `${drawerWidth}px` : 0 }}
-        >
-          <div
-            className={`flex h-full w-full flex-col transition-opacity duration-150 ${
-              drawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
-          >
-            <div className="border-b p-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  value={drawerSearch}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    setDrawerSearch(event.target.value)
-                  }
-                  placeholder="Search all drawer sections"
-                  className="pl-9"
-                />
-              </div>
-            </div>
-
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <div className="flex-1 min-h-0 flex flex-col gap-3 p-3">
-                <DrawerSection
-                  title="Data Sources"
-                  open={drawerSections.sources}
-                  onToggle={() =>
-                    setDrawerSections((current) => ({
-                      ...current,
-                      sources: !current.sources,
-                    }))
-                  }
-                >
-                  <DataSourcesPanel
-                    datasources={filteredDatasources}
-                    summary={{
-                      total: filteredDatasources.length,
-                      countsByType: filteredDatasources.reduce<
-                        Record<string, number>
-                      >((acc, item) => {
-                        acc[item.type] = (acc[item.type] ?? 0) + 1;
-                        return acc;
-                      }, {}),
-                    }}
-                    selectedDatasourceId={selectedDatasourceId}
-                    onSelectDatasource={(id) => {
-                      setSelectedDatasourceId(id);
-                      setDrawerSections((current) => ({
-                        ...current,
-                        sources: false,
-                      }));
-                    }}
-                    onRegisterFile={async (file) => {
-                      const name = await registerFile(file);
-                      setSelectedDatasourceId(name);
-                      if (
-                        pendingHistoryItem?.datasourceId &&
-                        pendingHistoryItem.datasourceId.toLowerCase() ===
-                          name.toLowerCase()
-                      ) {
-                        const pendingItem = pendingHistoryItem;
-                        setPendingHistoryItem(null);
-                        await handleLoadHistory(pendingItem);
-                      }
-                    }}
-                    onSearchRemoteTables={searchRemoteTables}
-                    onAddRemoteTable={addRemoteTable}
-                    onAddUrlDatasource={addUrlDatasource}
-                    onDeleteDatasource={(id) => {
-                      const ok = unregisterFile(id);
-                      if (!ok) {
-                        return;
-                      }
-
-                      const referencedDatasourceId =
-                        extractLocalDatasourceIdFromSql(editorSql);
-                      const shouldClearQuery =
-                        selectedDatasourceId === id ||
-                        referencedDatasourceId === id;
-
-                      if (shouldClearQuery) {
-                        suppressDatasourceAutoSelectRef.current = true;
-                        setSelectedDatasourceId("");
-                        setSelection(
-                          getDefaultQuerySelection(queryBuilderModel),
-                        );
-                        setFilters([]);
-                        setEditorSqlSeed("");
-                        setRawResultRows([]);
-                        setRawResultSql("");
-                        setResultTabs(getInitialResultTabs());
-                        setActiveResultTabId("main");
-                        setResultView("raw");
-                        setActiveMainTab("pivot");
-                        resetRuntimeState();
-                      }
-                    }}
-                    fileInputRef={fileInputRef}
-                    searchQuery={drawerSearch}
-                  />
-                </DrawerSection>
-
-                <DrawerSection
-                  title="Attributes"
-                  open={drawerSections.attributes}
-                  onToggle={() =>
-                    setDrawerSections((current) => ({
-                      ...current,
-                      attributes: !current.attributes,
-                    }))
-                  }
-                  grow={true}
-                >
-                  <AttributesPanel
-                    columns={filteredColumns}
-                    tableLabel={datasourceContext?.caption}
-                    isLoading={isLoadingMetadata}
-                    isMssqlSource={Boolean(
-                      selectedDatasourceId.startsWith("mssql:"),
-                    )}
-                    searchQuery={drawerSearch}
-                    onAction={handleMeasureAction}
-                    selection={selection}
-                    filters={filters}
-                    onAddFilter={addFilterForColumn}
-                    onSelectDimension={(columnName, isCtrl) => {
-                      const column = datasourceColumns.find(
-                        (item) => item.name === columnName,
-                      );
-                      const isTextType = /char|varchar|string|text|uuid/i.test(
-                        column?.type || "",
-                      );
-                      const encodedColumn = encodeURIComponent(columnName);
-                      const orderedTokens = [
-                        columnName,
-                        ...(isTextType
-                          ? [
-                              "__fn__|uppercase|",
-                              "__fn__|lowercase|",
-                              "__fn__|length|",
-                              "__fn__|bar|",
-                              "__fn__|reverse|",
-                              "__fn__|split|",
-                              "__fn__|left|",
-                              "__fn__|right|",
-                              "__fn__|string|",
-                            ].map((prefix) => {
-                              const defaultArg = prefix.includes("split|")
-                                ? " "
-                                : prefix.includes("left|") ||
-                                    prefix.includes("right|")
-                                  ? "1"
-                                  : prefix.includes("string|")
-                                    ? "1:10"
-                                    : "";
-                              return `${prefix}${encodedColumn}|${encodeURIComponent(defaultArg)}`;
-                            })
-                          : []),
-                      ];
-                      setSelection((current) => {
-                        const source = current.rowDimensions;
-                        const selectedInOrder = orderedTokens.filter((token) =>
-                          source.includes(token),
-                        );
-                        if (isCtrl) {
-                          const nextToAdd = orderedTokens.find(
-                            (token) => !source.includes(token),
-                          );
-                          if (!nextToAdd) {
-                            return current;
-                          }
-                          return {
-                            ...current,
-                            rowDimensions: [...source, nextToAdd],
-                          };
-                        }
-
-                        if (selectedInOrder.length > 0) {
-                          const nextToRemove =
-                            selectedInOrder[selectedInOrder.length - 1];
-                          const lastIndex = source.lastIndexOf(nextToRemove);
-                          const nextRows = [...source];
-                          nextRows.splice(lastIndex, 1);
-                          return { ...current, rowDimensions: nextRows };
-                        }
-
-                        return {
-                          ...current,
-                          rowDimensions: [...source, orderedTokens[0]],
-                        };
-                      });
-                    }}
-                    onSelectColumnDimension={(columnName, isCtrl) => {
-                      const column = datasourceColumns.find(
-                        (item) => item.name === columnName,
-                      );
-                      const isTextType = /char|varchar|string|text|uuid/i.test(
-                        column?.type || "",
-                      );
-                      const encodedColumn = encodeURIComponent(columnName);
-                      const orderedTokens = [
-                        columnName,
-                        ...(isTextType
-                          ? [
-                              "__fn__|uppercase|",
-                              "__fn__|lowercase|",
-                              "__fn__|length|",
-                              "__fn__|bar|",
-                              "__fn__|reverse|",
-                              "__fn__|split|",
-                              "__fn__|left|",
-                              "__fn__|right|",
-                              "__fn__|string|",
-                            ].map((prefix) => {
-                              const defaultArg = prefix.includes("split|")
-                                ? " "
-                                : prefix.includes("left|") ||
-                                    prefix.includes("right|")
-                                  ? "1"
-                                  : prefix.includes("string|")
-                                    ? "1:10"
-                                    : "";
-                              return `${prefix}${encodedColumn}|${encodeURIComponent(defaultArg)}`;
-                            })
-                          : []),
-                      ];
-                      setSelection((current) => {
-                        const source = current.columnDimensions;
-                        const selectedInOrder = orderedTokens.filter((token) =>
-                          source.includes(token),
-                        );
-                        if (isCtrl) {
-                          const nextToAdd = orderedTokens.find(
-                            (token) => !source.includes(token),
-                          );
-                          if (!nextToAdd) {
-                            return current;
-                          }
-                          return {
-                            ...current,
-                            columnDimensions: [...source, nextToAdd],
-                          };
-                        }
-
-                        if (selectedInOrder.length > 0) {
-                          const nextToRemove =
-                            selectedInOrder[selectedInOrder.length - 1];
-                          const lastIndex = source.lastIndexOf(nextToRemove);
-                          const nextCols = [...source];
-                          nextCols.splice(lastIndex, 1);
-                          return { ...current, columnDimensions: nextCols };
-                        }
-
-                        return {
-                          ...current,
-                          columnDimensions: [...source, orderedTokens[0]],
-                        };
-                      });
-                    }}
-                    onSelectMeasure={(columnName, isCtrl) => {
-                      const column = datasourceColumns.find(
-                        (item) => item.name === columnName,
-                      );
-                      const columnType = column?.type || "";
-                      const isNumericType =
-                        /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
-                          columnType,
-                        );
-                      const isTextType = /char|varchar|string|text|uuid/i.test(
-                        columnType,
-                      );
-                      const isTemporalType = /date|time/i.test(columnType);
-                      const supportsMeasureFn = (fnKey: string): boolean => {
-                        if (
-                          fnKey === "geomean" ||
-                          fnKey === "kurtosis" ||
-                          fnKey === "mad" ||
-                          fnKey === "skewness" ||
-                          fnKey === "stdev" ||
-                          fnKey === "variance"
-                        ) {
-                          return isNumericType;
-                        }
-                        if (
-                          fnKey === "histogram" ||
-                          fnKey === "list" ||
-                          fnKey === "unique_values"
-                        ) {
-                          return isNumericType || isTextType || isTemporalType;
-                        }
-                        if (
-                          fnKey === "entropy" ||
-                          fnKey === "median" ||
-                          fnKey === "mode"
-                        ) {
-                          return isNumericType || isTextType || isTemporalType;
-                        }
-                        if (fnKey === "count" || fnKey === "count_distinct") {
-                          return true;
-                        }
-                        if (fnKey === "sum" || fnKey === "avg") {
-                          return isNumericType;
-                        }
-                        if (fnKey === "min" || fnKey === "max") {
-                          return isNumericType || isTemporalType || isTextType;
-                        }
-                        return false;
-                      };
-
-                      const orderedFns = [
-                        "sum",
-                        "count",
-                        "count_distinct",
-                        "avg",
-                        "entropy",
-                        "kurtosis",
-                        "mad",
-                        "min",
-                        "max",
-                        "median",
-                        "mode",
-                        "skewness",
-                        "stdev",
-                        "variance",
-                        "geomean",
-                        "histogram",
-                        "list",
-                        "unique_values",
-                      ].filter((fnKey) => supportsMeasureFn(fnKey));
-
-                      setSelection((current) => {
-                        const measureFnsForColumn = new Set(
-                          current.measures
-                            .map((m) => {
-                              if (!m || m === "count:*") return null;
-                              const [base] = m.split("|");
-                              const parts = base.split(":");
-                              if (parts[1] !== columnName) {
-                                return null;
-                              }
-                              return parts[0] === "distinct_count"
-                                ? "count_distinct"
-                                : parts[0];
-                            })
-                            .filter((m): m is string => Boolean(m)),
-                        );
-                        const selectedFnsOrdered = orderedFns.filter((fnKey) =>
-                          measureFnsForColumn.has(fnKey),
-                        );
-                        const nextToAdd = orderedFns.find(
-                          (fnKey) => !measureFnsForColumn.has(fnKey),
-                        );
-
-                        const appendMeasure = (fnKey: string) => {
-                          const key = `${fnKey}:${columnName}`;
-                          if (current.measures.includes(key)) {
-                            return current;
-                          }
-                          return {
-                            ...current,
-                            measures: [...current.measures, key],
-                          };
-                        };
-
-                        const removeMeasure = (fnKey: string) => {
-                          let lastIndex = -1;
-                          for (
-                            let index = current.measures.length - 1;
-                            index >= 0;
-                            index -= 1
-                          ) {
-                            const measure = current.measures[index];
-                            if (!measure || measure === "count:*") {
-                              continue;
-                            }
-                            const [base] = measure.split("|");
-                            const parts = base.split(":");
-                            const normalized =
-                              parts[0] === "distinct_count"
-                                ? "count_distinct"
-                                : parts[0];
-                            if (
-                              parts[1] === columnName &&
-                              normalized === fnKey
-                            ) {
-                              lastIndex = index;
-                              break;
-                            }
-                          }
-                          if (lastIndex === -1) {
-                            return current;
-                          }
-                          const nextMeasures = [...current.measures];
-                          nextMeasures.splice(lastIndex, 1);
-                          return { ...current, measures: nextMeasures };
-                        };
-
-                        if (isCtrl) {
-                          if (!nextToAdd) {
-                            return current;
-                          }
-                          return appendMeasure(nextToAdd);
-                        }
-
-                        if (selectedFnsOrdered.length > 0) {
-                          const nextToRemove =
-                            selectedFnsOrdered[selectedFnsOrdered.length - 1];
-                          return removeMeasure(nextToRemove);
-                        }
-
-                        if (!nextToAdd) {
-                          return current;
-                        }
-                        return appendMeasure(nextToAdd);
-                      });
-                    }}
-                  />
-                </DrawerSection>
-
-                <DrawerSection
-                  title="Filters"
-                  open={drawerSections.filters}
-                  onToggle={() =>
-                    setDrawerSections((current) => ({
-                      ...current,
-                      filters: !current.filters,
-                    }))
-                  }
-                >
-                  <FiltersPanel
-                    columns={filteredColumns}
-                    filters={filteredFilters}
-                    filterAliasOptionsByColumn={filterAliasOptionsByColumn}
-                    filterDimensionTokenByAlias={filterDimensionTokenByAlias}
-                    querySql={sql}
-                    searchQuery={drawerSearch}
-                    fromClauseSql={datasourceContext?.fromClauseSql}
-                    datasourceId={selectedDatasourceId}
-                    onAddFilter={addFilterForColumn}
-                    onRemoveFilter={(id) =>
-                      setFilters((current) =>
-                        current.filter((filter) => filter.id !== id),
-                      )
-                    }
-                    onUpdateFilter={(updated) =>
-                      setFilters((current) =>
-                        current.map((filter) =>
-                          filter.id === updated.id ? updated : filter,
-                        ),
-                      )
-                    }
-                  />
-                </DrawerSection>
-
-                {filteredPresetCount > 0 ? (
-                  <p className="px-1 text-[11px] text-muted-foreground">
-                    {filteredPresetCount} preset
-                    {filteredPresetCount === 1 ? "" : "s"} match the search.
-                  </p>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Resizer handle (overlaps right edge) */}
-            {drawerOpen ? (
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  startDrawerResize(e.clientX);
-                }}
-                className="absolute top-0 right-0 h-full w-2 -mr-1 cursor-col-resize z-50"
-                style={{ background: "transparent" }}
-              />
-            ) : null}
-          </div>
-        </aside>
+        <WorkspaceShellDrawer
+          drawerOpen={drawerOpen}
+          drawerWidth={drawerWidth}
+          drawerSearch={drawerSearch}
+          drawerSections={drawerSections}
+          filteredPresetCount={filteredPresetCount}
+          filteredDatasources={filteredDatasources}
+          selectedDatasourceId={selectedDatasourceId}
+          datasourceSummary={datasourceSummary}
+          fileInputRef={fileInputRef}
+          filteredColumns={filteredColumns}
+          datasourceCaption={datasourceContext?.caption}
+          isLoadingMetadata={isLoadingMetadata}
+          selection={selection}
+          filters={filters}
+          filteredFilters={filteredFilters}
+          filterAliasOptionsByColumn={filterAliasOptionsByColumn}
+          filterDimensionTokenByAlias={filterDimensionTokenByAlias}
+          sql={sql}
+          fromClauseSql={datasourceContext?.fromClauseSql}
+          onCloseOverlay={() => setDrawerOpen(false)}
+          onDrawerSearchChange={setDrawerSearch}
+          onToggleSection={handleToggleDrawerSection}
+          onSelectDatasource={handleDrawerSelectDatasource}
+          onRegisterFile={handleDrawerRegisterFile}
+          onSearchRemoteTables={searchRemoteTables}
+          onAddRemoteTable={addRemoteTable}
+          onAddUrlDatasource={addUrlDatasource}
+          onDeleteDatasource={handleDrawerDeleteDatasource}
+          onMeasureAction={handleMeasureAction}
+          onSelectDimension={handleDrawerSelectDimension}
+          onSelectColumnDimension={handleDrawerSelectColumnDimension}
+          onSelectMeasure={handleDrawerSelectMeasure}
+          onAddFilter={addFilterForColumn}
+          onRemoveFilter={handleDrawerRemoveFilter}
+          onUpdateFilter={handleDrawerUpdateFilter}
+          onResizeStart={startDrawerResize}
+        />
 
         <main className="min-w-0 flex-1">
           <div className="flex h-full min-h-0 flex-col gap-4 px-4 py-4 lg:px-6">
-            <section className="shrink-0 rounded-2xl border bg-card shadow-sm flex flex-col transition-all">
-              <Tabs
-                value={activeMainTab}
-                onValueChange={(value: string) =>
-                  setActiveMainTab(value as "pivot" | "sql")
-                }
-                className="w-full flex flex-col"
-              >
-                <div
-                  className={`flex items-center justify-between gap-3 p-4 ${workspaceOpen ? "border-b" : ""}`}
-                >
-                  <div className="flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setWorkspaceOpen((o) => !o)}
-                      className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors outline-none"
-                    >
-                      {workspaceOpen ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                      Workspace
-                    </button>
-
-                    {workspaceOpen ? (
-                      <TabsList className="h-8">
-                        <TabsTrigger value="pivot" className="h-6 text-xs px-3">
-                          Query Builder
-                        </TabsTrigger>
-                        <TabsTrigger value="sql" className="h-6 text-xs px-3">
-                          SQL Editor
-                        </TabsTrigger>
-                        {presets.length > 0 ? (
-                          <TabsTrigger
-                            value="presets"
-                            className="h-6 text-xs px-3"
-                          >
-                            Bookmarks
-                          </TabsTrigger>
-                        ) : null}
-                      </TabsList>
-                    ) : null}
-                  </div>
-
-                  {workspaceOpen ? (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-[11px]"
-                        onClick={handleSavePresetClick}
-                        disabled={!selectedDatasourceId || !editorSql.trim()}
-                        title="Save Bookmark"
-                      >
-                        <BookmarkPlus
-                          className="mr-1.5 h-4 w-4"
-                          aria-hidden="true"
-                        />
-                        Bookmark
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        aria-label="Clear all"
-                        title="Clear All"
-                        onClick={handleClearAll}
-                        disabled={isRunning || !selectedDatasourceId}
-                      >
-                        <Eraser className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setActiveResultTabId("main");
-                          setResultView(
-                            shouldKeepPivotOnMainQueryChange ? "pivot" : "raw",
-                          );
-                          void runQueryAndCaptureRaw(sql);
-                        }}
-                        disabled={
-                          isRunning ||
-                          !datasourceContext?.fromClauseSql ||
-                          settings.autoRunQueries
-                        }
-                      >
-                        {settings.autoRunQueries ? (
-                          <Zap className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                        ) : (
-                          <Play className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                        )}
-                        {isRunning
-                          ? "Running..."
-                          : settings.autoRunQueries
-                            ? "Auto-run"
-                            : "Run"}
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-
-                {workspaceOpen && (
-                  <div className="p-4 space-y-4">
-                    <TabsContent value="pivot" className="mt-0 space-y-4">
-                      <QueryBuilderPanel
-                        value={selection}
-                        onChange={handleQueryBuilderSelectionChange}
-                        dimensionOptions={queryBuilderModel.dimensionOptions}
-                        measureOptions={queryBuilderModel.measureOptions}
-                        columns={datasourceColumns}
-                        datasourceLabel={datasourceContext?.caption}
-                        disabled={isLoadingMetadata || !selectedDatasourceId}
-                        limitEnabled={limitEnabled}
-                        onToggleLimit={(next) => setLimitEnabled(next)}
-                      />
-                    </TabsContent>
-
-                    <TabsContent value="sql" className="mt-0 min-h-0">
-                      <div className="flex min-h-0 flex-col">
-                        <SqlEditor
-                          sql={editorSql}
-                          datasourceId={selectedDatasourceId}
-                          selection={selection}
-                          filters={filters}
-                          onRunSql={(customSql) => {
-                            setActiveResultTabId("main");
-                            setResultView("raw");
-                            void runQueryAndCaptureRaw(customSql);
-                          }}
-                          onSavePreset={handleSavePreset}
-                          onLoadPreset={handleLoadPreset}
-                          onLoadHistory={handleLoadHistory}
-                          onDeletePreset={handleDeletePreset}
-                          presets={presets}
-                          lastError={errorMessage}
-                        />
-                      </div>
-                    </TabsContent>
-                    {presets.length > 0 ? (
-                      <TabsContent value="presets" className="mt-0 min-h-0">
-                        <div className="flex flex-col gap-3">
-                          <div className="relative">
-                            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                            <Input
-                              value={presetQuery}
-                              onChange={(event) =>
-                                setPresetQuery(event.target.value)
-                              }
-                              placeholder="Search presets"
-                              className="pl-9"
-                            />
-                          </div>
-                          <ScrollArea className="h-[calc(100%-44px)] border rounded-md bg-card/50">
-                            <div className="p-1 space-y-1">
-                              {filteredPresets.length === 0 ? (
-                                <div className="p-8 text-center text-xs text-muted-foreground italic">
-                                  No saved presets.
-                                </div>
-                              ) : (
-                                filteredPresets.map((preset) => {
-                                  const isAvailable = datasources.some(
-                                    (item) => item.id === preset.datasourceId,
-                                  );
-                                  return (
-                                    <div
-                                      key={preset.id}
-                                      className={cn(
-                                        "group rounded border px-3 py-2 text-xs transition-colors",
-                                        isAvailable
-                                          ? "bg-background"
-                                          : "bg-muted/40 opacity-70",
-                                      )}
-                                    >
-                                      <div className="flex items-center justify-between gap-2">
-                                        <button
-                                          type="button"
-                                          className="min-w-0 flex-1 text-left"
-                                          onClick={() =>
-                                            handleLoadPreset(preset)
-                                          }
-                                          title={
-                                            isAvailable
-                                              ? undefined
-                                              : "Datasource not loaded — click to restore"
-                                          }
-                                        >
-                                          <p className="truncate font-medium">
-                                            {preset.name}
-                                          </p>
-                                          <p className="truncate text-[11px] text-muted-foreground">
-                                            {preset.datasourceId ||
-                                              "No datasource"}{" "}
-                                            •{" "}
-                                            {new Date(
-                                              preset.createdAt,
-                                            ).toLocaleString()}
-                                            {!isAvailable
-                                              ? " • unavailable"
-                                              : null}
-                                          </p>
-                                        </button>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7 opacity-0 group-hover:opacity-100"
-                                          onClick={() =>
-                                            handleDeletePreset(preset.id)
-                                          }
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </div>
-                          </ScrollArea>
-                        </div>
-                      </TabsContent>
-                    ) : null}
-                  </div>
-                )}
-              </Tabs>
-            </section>
-
-            <WorkspaceResultsPanel
-              resultTabs={resultTabs}
-              hasTableTabResult={hasTableTabResult}
-              activeResultTabId={activeResultTabId}
-              setActiveResultTabId={setActiveResultTabId}
-              activeResultTab={activeResultTab}
-              setResultView={setResultView}
-              resultView={resultView}
-              handleShowRaw={handleShowRaw}
-              handleShowPivot={handleShowPivot}
-              handleShowRows={handleShowRows}
-              showPivotRowsTabs={showPivotRowsTabs}
-              canRenderPivot={canRenderPivot}
-              runtimeStatus={runtimeStatus}
-              limitEnabled={limitEnabled}
+            <WorkspaceMainTabs
+              activeMainTab={activeMainTab}
+              workspaceOpen={workspaceOpen}
+              presets={presets}
+              selectedDatasourceId={selectedDatasourceId}
+              editorSql={editorSql}
+              isRunning={isRunning}
+              autoRunQueries={settings.autoRunQueries}
+              hasDatasourceFromClauseSql={Boolean(
+                datasourceContext?.fromClauseSql,
+              )}
               selection={selection}
-              lastExecutionMs={lastExecutionMs}
-              setIsExportDialogOpen={setIsExportDialogOpen}
-              displayedRows={displayedRows}
+              queryBuilderModel={queryBuilderModel}
+              datasourceColumns={datasourceColumns}
+              datasourceCaption={datasourceContext?.caption}
+              isLoadingMetadata={isLoadingMetadata}
+              limitEnabled={limitEnabled}
+              filters={filters}
               errorMessage={errorMessage}
-              rawResultRows={rawResultRows}
-              lastResult={lastResult}
-              activeRowAxisKeys={activeRowAxisKeys}
-              activeRowAxisDimensions={activeRowAxisDimensions}
-              activeRowSortDirections={activeRowSortDirections}
-              activeRowSortPriority={activeRowSortPriority}
-              activeColumnAxisKeys={activeColumnAxisKeys}
-              activeColumnAxisDimensions={activeColumnAxisDimensions}
-              activeColumnSortDirections={activeColumnSortDirections}
-              activeColumnSortPriority={activeColumnSortPriority}
-              onPivotRowHeaderSortChange={handlePivotRowHeaderSortChange}
-              onPivotColumnHeaderSortChange={handlePivotColumnHeaderSortChange}
-              includeSubtotals={Boolean(activePivotSelection?.includeSubtotals)}
-              onTogglePivotSubtotals={handlePivotSubtotalsToggle}
-              datasourceFromClauseSql={datasourceContext?.fromClauseSql}
-              runQueryAndSyncEditor={runQueryAndSyncEditor}
-              lastQuery={lastQuery}
-              lazyPreviewHasMore={
-                lazyPreviewState?.hasMore === true &&
-                activeResultTabId === "all-columns"
-              }
-              onLoadMorePreview={handleLoadMorePreview}
+              datasources={datasources}
+              presetQuery={presetQuery}
+              filteredPresets={filteredPresets}
+              onActiveMainTabChange={(value) => setActiveMainTab(value)}
+              onToggleWorkspace={() => setWorkspaceOpen((open) => !open)}
+              onSaveBookmark={handleSavePresetClick}
+              onClearAll={handleClearAll}
+              onRun={() => {
+                setActiveResultTabId("main");
+                setResultView(
+                  shouldKeepPivotOnMainQueryChange ? "pivot" : "raw",
+                );
+                void runQueryAndCaptureRaw(sql);
+              }}
+              onSelectionChange={handleQueryBuilderSelectionChange}
+              onToggleLimit={(next) => setLimitEnabled(next)}
+              onRunSql={(customSql) => {
+                setActiveResultTabId("main");
+                setResultView("raw");
+                void runQueryAndCaptureRaw(customSql);
+              }}
+              onSavePreset={handleSavePreset}
+              onLoadPreset={handleLoadPreset}
+              onLoadHistory={handleLoadHistory}
+              onDeletePreset={handleDeletePreset}
+              onPresetQueryChange={setPresetQuery}
             />
+
+            <WorkspaceResultsPanel {...workspaceResultsPanelProps} />
           </div>
         </main>
       </div>

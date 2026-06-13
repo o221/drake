@@ -48,6 +48,105 @@ type DimensionFunctionItem = {
   argKind?: DimensionFunctionArgKind;
 };
 
+const MEASURE_ITEMS_BY_CATEGORY: Record<
+  "summary" | "statistics" | "list_aggregators",
+  Array<{ key: string; label: string }>
+> = {
+  summary: [
+    { key: "sum", label: "Sum" },
+    { key: "count", label: "Count" },
+    { key: "distinct_count", label: "Distinct Count" },
+  ],
+  statistics: [
+    { key: "avg", label: "Average" },
+    { key: "entropy", label: "Entropy" },
+    { key: "kurtosis", label: "Kurtosis" },
+    { key: "mad", label: "MAD" },
+    { key: "min", label: "Min" },
+    { key: "max", label: "Max" },
+    { key: "median", label: "Median" },
+    { key: "mode", label: "Mode" },
+    { key: "skewness", label: "Skewness" },
+    { key: "stdev", label: "Std Dev" },
+    { key: "variance", label: "Variance" },
+    { key: "geomean", label: "Geo Mean" },
+  ],
+  list_aggregators: [
+    { key: "histogram", label: "Histogram" },
+    { key: "list", label: "List" },
+    { key: "unique_values", label: "Unique Values" },
+  ],
+};
+
+const ALL_MEASURE_ITEMS = [
+  ...MEASURE_ITEMS_BY_CATEGORY.summary,
+  ...MEASURE_ITEMS_BY_CATEGORY.statistics,
+  ...MEASURE_ITEMS_BY_CATEGORY.list_aggregators,
+];
+
+const TEXT_FUNCTION_ITEMS: DimensionFunctionItem[] = [
+  { key: "uppercase", label: "Uppercase" },
+  { key: "lowercase", label: "Lowercase" },
+  { key: "sentence_case", label: "Sentence case" },
+  { key: "title_case", label: "Title Case" },
+  { key: "length", label: "Length" },
+  { key: "bar", label: "Bar" },
+  { key: "reverse", label: "Reverse" },
+  {
+    key: "split",
+    label: "Split",
+    defaultArg: ",=>1",
+    argKind: "split_extract",
+  },
+  {
+    key: "replace",
+    label: "Replace",
+    defaultArg: "=>",
+    argKind: "replace_pair",
+  },
+  { key: "left", label: "Left", defaultArg: "1", argKind: "number" },
+  { key: "right", label: "Right", defaultArg: "1", argKind: "number" },
+  { key: "string", label: "String", defaultArg: "1:10", argKind: "range" },
+];
+
+const DATE_FUNCTION_ITEMS: DimensionFunctionItem[] = [
+  {
+    key: "date_format",
+    label: "Format",
+    defaultArg: "YY-MM-DD",
+    argKind: "format",
+  },
+  { key: "extract_year", label: "Year" },
+  { key: "extract_quarter", label: "Quarter" },
+  { key: "extract_month", label: "Month" },
+  { key: "extract_week", label: "Week" },
+  { key: "extract_day", label: "Day" },
+  { key: "julian", label: "Julian" },
+  { key: "last_day", label: "Last Day" },
+  { key: "least_date", label: "Least" },
+  { key: "greatest_date", label: "Greatest" },
+  { key: "age", label: "Age", defaultArg: "year", argKind: "age_part" },
+  { key: "date_fmt_iso_time", label: "ISO Time" },
+  { key: "date_fmt_hour", label: "Hour" },
+  { key: "date_fmt_minute", label: "Minute" },
+  { key: "date_fmt_second", label: "Second" },
+];
+
+const DIMENSION_FUNCTION_ITEMS: DimensionFunctionItem[] = [
+  ...TEXT_FUNCTION_ITEMS,
+  ...DATE_FUNCTION_ITEMS,
+];
+
+function isNumericType(type: string): boolean {
+  return /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
+    type || "",
+  );
+}
+
+function isTextType(type: string): boolean {
+  return /char|varchar|string|text|uuid/i.test(type || "");
+}
+
 function getIconForType(type: string) {
   const t = type?.toLowerCase?.() ?? "";
   const baseCls =
@@ -113,103 +212,6 @@ export default function AttributesPanel({
   const [columnFunctionChainEnabled, setColumnFunctionChainEnabled] = useState<
     Record<string, boolean>
   >({});
-
-  const isNumericType = (type: string): boolean =>
-    /int|decimal|double|float|real|numeric|hugeint|bigint|smallint|tinyint/i.test(
-      type || "",
-    );
-
-  const isTextType = (type: string): boolean =>
-    /char|varchar|string|text|uuid/i.test(type || "");
-
-  const measureItemsByCategory: Record<
-    "summary" | "statistics" | "list_aggregators",
-    Array<{ key: string; label: string }>
-  > = {
-    summary: [
-      { key: "sum", label: "Sum" },
-      { key: "count", label: "Count" },
-      { key: "distinct_count", label: "Distinct Count" },
-    ],
-    statistics: [
-      { key: "avg", label: "Average" },
-      { key: "entropy", label: "Entropy" },
-      { key: "kurtosis", label: "Kurtosis" },
-      { key: "mad", label: "MAD" },
-      { key: "min", label: "Min" },
-      { key: "max", label: "Max" },
-      { key: "median", label: "Median" },
-      { key: "mode", label: "Mode" },
-      { key: "skewness", label: "Skewness" },
-      { key: "stdev", label: "Std Dev" },
-      { key: "variance", label: "Variance" },
-      { key: "geomean", label: "Geo Mean" },
-    ],
-    list_aggregators: [
-      { key: "histogram", label: "Histogram" },
-      { key: "list", label: "List" },
-      { key: "unique_values", label: "Unique Values" },
-    ],
-  };
-
-  const allMeasureItems = [
-    ...measureItemsByCategory.summary,
-    ...measureItemsByCategory.statistics,
-    ...measureItemsByCategory.list_aggregators,
-  ];
-
-  const textFunctionItems: DimensionFunctionItem[] = [
-    { key: "uppercase", label: "Uppercase" },
-    { key: "lowercase", label: "Lowercase" },
-    { key: "sentence_case", label: "Sentence case" },
-    { key: "title_case", label: "Title Case" },
-    { key: "length", label: "Length" },
-    { key: "bar", label: "Bar" },
-    { key: "reverse", label: "Reverse" },
-    {
-      key: "split",
-      label: "Split",
-      defaultArg: ",=>1",
-      argKind: "split_extract",
-    },
-    {
-      key: "replace",
-      label: "Replace",
-      defaultArg: "=>",
-      argKind: "replace_pair",
-    },
-    { key: "left", label: "Left", defaultArg: "1", argKind: "number" },
-    { key: "right", label: "Right", defaultArg: "1", argKind: "number" },
-    { key: "string", label: "String", defaultArg: "1:10", argKind: "range" },
-  ];
-
-  const dateFunctionItems: DimensionFunctionItem[] = [
-    {
-      key: "date_format",
-      label: "Format",
-      defaultArg: "YY-MM-DD",
-      argKind: "format",
-    },
-    { key: "extract_year", label: "Year" },
-    { key: "extract_quarter", label: "Quarter" },
-    { key: "extract_month", label: "Month" },
-    { key: "extract_week", label: "Week" },
-    { key: "extract_day", label: "Day" },
-    { key: "julian", label: "Julian" },
-    { key: "last_day", label: "Last Day" },
-    { key: "least_date", label: "Least" },
-    { key: "greatest_date", label: "Greatest" },
-    { key: "age", label: "Age", defaultArg: "year", argKind: "age_part" },
-    { key: "date_fmt_iso_time", label: "ISO Time" },
-    { key: "date_fmt_hour", label: "Hour" },
-    { key: "date_fmt_minute", label: "Minute" },
-    { key: "date_fmt_second", label: "Second" },
-  ];
-
-  const dimensionFunctionItems: DimensionFunctionItem[] = [
-    ...textFunctionItems,
-    ...dateFunctionItems,
-  ];
 
   const getFunctionArgKey = (columnName: string, fnKey: string): string =>
     `${columnName}|${fnKey}`;
@@ -332,7 +334,7 @@ export default function AttributesPanel({
 
     return fnKeys
       .map((fnKey, index) => {
-        const fn = dimensionFunctionItems.find((item) => item.key === fnKey);
+        const fn = DIMENSION_FUNCTION_ITEMS.find((item) => item.key === fnKey);
         const label = fn?.label ?? fnKey;
         const rawArg = args[index] ?? "";
         if (fn?.argKind === "format") {
@@ -424,7 +426,7 @@ export default function AttributesPanel({
 
   const getOrderedMeasureFnsForType = (columnType: string): string[] => {
     const ordered: string[] = [];
-    allMeasureItems.forEach((item) => {
+    ALL_MEASURE_ITEMS.forEach((item) => {
       if (!supportsMeasureFn(columnType, item.key)) {
         return;
       }
@@ -437,7 +439,7 @@ export default function AttributesPanel({
   };
 
   const getMeasureFnLabel = (fnKey: string): string => {
-    const found = allMeasureItems.find(
+    const found = ALL_MEASURE_ITEMS.find(
       (item) => normalizeMeasureFn(item.key) === fnKey,
     );
     if (found) {
@@ -575,7 +577,7 @@ export default function AttributesPanel({
 
                 <div className="mt-2 flex flex-wrap gap-1">
                   {(() => {
-                    const categoryItems = allMeasureItems.filter((item) =>
+                    const categoryItems = ALL_MEASURE_ITEMS.filter((item) =>
                       filteredColumns.some((col) =>
                         supportsMeasureFn(col.type, item.key),
                       ),
@@ -736,7 +738,7 @@ export default function AttributesPanel({
                   );
                 };
 
-                const categoryItems = allMeasureItems.filter((item) =>
+                const categoryItems = ALL_MEASURE_ITEMS.filter((item) =>
                   supportsMeasureFn(col.type, item.key),
                 );
 
@@ -1020,10 +1022,10 @@ export default function AttributesPanel({
                                     defaultArg: "",
                                   },
                                   ...(isTextType(col.type)
-                                    ? textFunctionItems
+                                    ? TEXT_FUNCTION_ITEMS
                                     : []),
                                   ...(isTemporalType(col.type)
-                                    ? dateFunctionItems
+                                    ? DATE_FUNCTION_ITEMS
                                     : []),
                                 ] as DimensionFunctionItem[]
                               ).map((item) => {
